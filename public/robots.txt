@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://editpdf.adwyzors.com/sitemap.xml
