@@ -162,7 +162,7 @@ export function usePDFEditor() {
     const ctx = canvas.getContext('2d')!;
 
     // Start render and store task reference
-    const task = page.render({ canvasContext: ctx, viewport });
+    const task = page.render({ canvasContext: ctx, viewport, canvas });
     renderTaskRef.current = task;
 
     try {
@@ -447,7 +447,7 @@ export function usePDFEditor() {
       }
 
       const pdfBytes = await pdfLibDoc.save();
-      const blob  = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blob  = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
       const url   = URL.createObjectURL(blob);
       const a     = document.createElement('a');
       a.href      = url;
