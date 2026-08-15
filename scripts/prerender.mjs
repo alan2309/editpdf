@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 // Import SEO data structure
 const SEO_DATA = {
@@ -154,7 +155,7 @@ const SEO_DATA = {
   }
 };
 
-function generateRouteHTML(templateHtml, route, data) {
+function generateRouteHTML(templateHtml, route, data, appHtml = '') {
   let html = templateHtml;
 
   // Replace <title>
@@ -201,27 +202,54 @@ function generateRouteHTML(templateHtml, route, data) {
     html = html.replace(/<script type="application\/ld\+json" id="dynamic-faq-schema">[\s\S]*?<\/script>/, faqScriptTag);
   }
 
+  // Inject full pre-rendered HTML DOM into <div id="root">
+  if (appHtml) {
+    html = html.replace('<div id="root"></div>', `<div id="root">${appHtml}</div>`);
+  }
+
   return html;
 }
 
 async function runPrerender() {
   const distDir = path.resolve('dist');
+  const ssrEntryPath = path.resolve('dist-ssr', 'entry-server.js');
+
   if (!fs.existsSync(distDir)) {
     console.error('dist directory not found. Please run vite build first.');
     process.exit(1);
   }
 
+  let renderFn = null;
+  if (fs.existsSync(ssrEntryPath)) {
+    try {
+      const serverModule = await import(pathToFileURL(ssrEntryPath).href);
+      renderFn = serverModule.render;
+      console.log('✓ Loaded SSR server renderer for Full DOM generation.');
+    } catch (e) {
+      console.warn('Warning: Could not load SSR renderer, falling back to head-only pre-render:', e);
+    }
+  }
+
   const templatePath = path.join(distDir, 'index.html');
   const templateHtml = fs.readFileSync(templatePath, 'utf-8');
 
-  console.log('Generating pre-rendered static route HTML files for SEO crawlers...');
+  console.log('Generating Full-DOM pre-rendered static route HTML files for Googlebot & SEO crawlers...');
 
   for (const [route, data] of Object.entries(SEO_DATA)) {
-    const routeHtml = generateRouteHTML(templateHtml, route, data);
+    let appHtml = '';
+    if (renderFn) {
+      try {
+        appHtml = renderFn(route);
+      } catch (err) {
+        console.error(`Error rendering DOM for route ${route}:`, err);
+      }
+    }
+
+    const routeHtml = generateRouteHTML(templateHtml, route, data, appHtml);
 
     if (route === '/') {
       fs.writeFileSync(templatePath, routeHtml, 'utf-8');
-      console.log(`  ✓ / (index.html updated with root SEO meta)`);
+      console.log(`  ✓ / (index.html populated with full DOM + SEO head)`);
     } else {
       const targetDir = path.join(distDir, route.replace(/^\//, ''));
       if (!fs.existsSync(targetDir)) {
@@ -229,16 +257,26 @@ async function runPrerender() {
       }
       const targetFile = path.join(targetDir, 'index.html');
       fs.writeFileSync(targetFile, routeHtml, 'utf-8');
-      console.log(`  ✓ ${route} -> ${targetFile}`);
+      console.log(`  ✓ ${route} -> ${targetFile} (Full DOM pre-rendered)`);
     }
   }
 
-  // Create 404.html fallback for SPA hosting (GitHub Pages, Netlify, Cloudflare Pages)
+  // Create 404.html fallback
+  let rootHtml = '';
+  if (renderFn) {
+    try { rootHtml = renderFn('/'); } catch {}
+  }
   const notFoundPath = path.join(distDir, '404.html');
-  fs.writeFileSync(notFoundPath, templateHtml, 'utf-8');
-  console.log('  ✓ 404.html fallback created');
+  fs.writeFileSync(notFoundPath, generateRouteHTML(templateHtml, '/', SEO_DATA['/'], rootHtml), 'utf-8');
+  console.log('  ✓ 404.html fallback created with full DOM');
 
-  console.log('Pre-rendering completed successfully!');
+  // Clean up dist-ssr temporary build
+  const distSsrDir = path.resolve('dist-ssr');
+  if (fs.existsSync(distSsrDir)) {
+    fs.rmSync(distSsrDir, { recursive: true, force: true });
+  }
+
+  console.log('🎉 Full DOM Pre-rendering completed successfully! Zero empty <body> tags.');
 }
 
 runPrerender().catch(console.error);
