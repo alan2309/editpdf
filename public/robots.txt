@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
+Allow: /secure-pdf-editor
+Allow: /edit-bank-statement-pdf
+Allow: /redact-pdf-in-browser
+Allow: /chrome-pdf-editor
 
 Sitemap: https://editpdf.adwyzors.com/sitemap.xml

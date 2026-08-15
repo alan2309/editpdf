@@ -1,9 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+  
+  <!-- Main Hub / Homepage -->
   <url>
     <loc>https://editpdf.adwyzors.com/</loc>
-    <lastmod>2026-06-26</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>1.0</priority>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.00</priority>
   </url>
+
+  <!-- Spoke: Secure & Confidential PDF Editor -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/secure-pdf-editor</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.90</priority>
+  </url>
+
+  <!-- Spoke: Edit Bank Statement PDF -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/edit-bank-statement-pdf</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.90</priority>
+  </url>
+
+  <!-- Spoke: Redact PDF in Browser -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/redact-pdf-in-browser</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.90</priority>
+  </url>
+
+  <!-- Spoke: Chrome PDF Editor -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/chrome-pdf-editor</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.90</priority>
+  </url>
+
 </urlset>

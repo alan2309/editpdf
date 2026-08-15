@@ -1,14 +1,19 @@
 import { useState, useCallback } from 'react';
 import Navbar from './components/Navbar';
-import Hero from './components/Hero';
 import PDFEditor from './components/PDFEditor';
-import HowItWorks from './components/HowItWorks';
-import FAQ from './components/FAQ';
 import Footer from './components/Footer';
+import HomePage from './pages/HomePage';
+import SecurePdfEditorPage from './pages/SecurePdfEditorPage';
+import BankStatementPdfEditorPage from './pages/BankStatementPdfEditorPage';
+import RedactPdfInBrowserPage from './pages/RedactPdfInBrowserPage';
+import ChromePdfEditorPage from './pages/ChromePdfEditorPage';
+import { RouterProvider, useRouter } from './context/RouterContext';
 import { usePDFEditor } from './hooks/usePDFEditor';
 
-export default function App() {
+function MainApp() {
   const [pdfLoaded, setPdfLoaded] = useState(false);
+  const { currentPath } = useRouter();
+
   const {
     state, loadPDF, renderPage, updateText, updateFormat, updatePosition, deleteItem,
     addTextField, undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
@@ -29,16 +34,32 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [resetEditor]);
 
+  // Page Routing
+  const renderCurrentPage = () => {
+    const normalized = currentPath === '' || currentPath === '/' ? '/' : currentPath.replace(/\/$/, '');
+
+    switch (normalized) {
+      case '/secure-pdf-editor':
+        return <SecurePdfEditorPage onFileSelected={handleFileSelected} />;
+      case '/edit-bank-statement-pdf':
+        return <BankStatementPdfEditorPage onFileSelected={handleFileSelected} />;
+      case '/redact-pdf-in-browser':
+        return <RedactPdfInBrowserPage onFileSelected={handleFileSelected} />;
+      case '/chrome-pdf-editor':
+        return <ChromePdfEditorPage onFileSelected={handleFileSelected} />;
+      case '/':
+      default:
+        return <HomePage onFileSelected={handleFileSelected} />;
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
 
       <main style={{ flex: 1 }}>
-        {/* Hero / upload section — always visible until PDF loaded */}
-        {!pdfLoaded && <Hero onFileSelected={handleFileSelected} />}
-
-        {/* Editor — shown after PDF is loaded */}
-        {pdfLoaded && state.totalPages > 0 && (
+        {/* Active Editor — shown after PDF is loaded on ANY page */}
+        {pdfLoaded && state.totalPages > 0 ? (
           <PDFEditor
             state={state}
             renderPage={renderPage}
@@ -55,6 +76,8 @@ export default function App() {
             exportPDF={exportPDF}
             resetEditor={handleReset}
           />
+        ) : (
+          renderCurrentPage()
         )}
 
         {/* Loading state */}
@@ -82,12 +105,17 @@ export default function App() {
             </div>
           </div>
         )}
-
-        <HowItWorks />
-        <FAQ />
       </main>
 
       <Footer />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <RouterProvider>
+      <MainApp />
+    </RouterProvider>
   );
 }
