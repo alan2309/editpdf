@@ -15,12 +15,12 @@ export interface PageSEO {
 
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
-    title: 'Private PDF Editor (No Upload) | Edit PDFs Online Free & Secure',
-    description: 'Edit PDF text online for free with 100% in-browser processing. Zero server uploads, completely private & secure. Click any text to modify and download instantly.',
-    keywords: 'private pdf editor, edit pdf no upload, client-side pdf editor, edit pdf text online, free browser pdf editor, secure pdf editor, pdf text changer, offline pdf editor',
+    title: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
+    description: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Click any text to edit, format, and download modified PDFs instantly.',
+    keywords: '100% private pdf editor, edit pdf online free no upload, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, redact pdf in browser, chrome pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Text Editor | Edit in Browser (No Server Upload)',
-    ogDescription: 'Edit PDF text directly in your browser without uploading files to any cloud server. Fast, free, and completely private.',
+    ogTitle: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
+    ogDescription: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Edit text, format fonts, and download instantly.',
     h1: '100% Private PDF Text Editor',
     h1Highlight: 'Edit in Browser',
     h1Subtitle: '(No Server Upload)',
@@ -28,35 +28,27 @@ export const SEO_DATA: Record<string, PageSEO> = {
     faqs: [
       {
         q: 'Is this PDF text editor really free?',
-        a: 'Yes, EditPDF by Adwyzors is 100% free forever. There are no subscriptions, no paywalls, no watermarks, and no sign-up required.'
+        a: 'Yes, it is 100% free to use with no hidden fees, no signup required, and no limits on basic usage.'
       },
       {
-        q: 'Does my PDF ever get uploaded to any server or cloud?',
-        a: 'No. Your PDF is processed 100% locally on your device inside your browser using WebAssembly and client-side JavaScript. Not a single byte of your document is ever transmitted over the network.'
+        q: 'Does my PDF get uploaded to any server?',
+        a: 'No. Unlike other tools, our PDF editor processes your file entirely in your web browser. Your file never leaves your device and is never uploaded to a cloud server, ensuring 100% privacy.'
+      },
+      {
+        q: 'How is this different from Adobe Acrobat?',
+        a: 'Adobe requires you to upload your files to their servers and often requires an account. We require no signup and process everything locally in your browser, making it much safer for confidential documents.'
       },
       {
         q: 'What types of PDFs can I edit?',
-        a: 'You can edit any native, text-based PDF—including contracts, invoices, resumes, bank statements, reports, and tax documents. Scanned image-only PDFs require OCR before text can be edited directly.'
+        a: 'You can edit any text-based PDF up to 50MB. Scanned image-based PDFs are not currently supported for direct text editing.'
       },
       {
         q: 'Will the edited text match the original PDF fonts?',
         a: 'When you edit text, the editor matches the font family (Helvetica/Sans-Serif, Times-Roman/Serif, or Courier/Monospace), font size, styling (bold, italic, underline), and text color with precision.'
       },
       {
-        q: 'Can I edit multi-page PDF documents?',
-        a: 'Yes! You can seamlessly navigate through all pages of multi-page PDF documents, making targeted edits across any page before exporting the final PDF.'
-      },
-      {
-        q: 'What happens if I close the browser without downloading?',
-        a: 'Because no files or changes are stored on remote servers, your edits exist only in your browser tab’s temporary memory. Be sure to click "Download PDF" to save your changes to your device.'
-      },
-      {
         q: 'Is this tool compliant with GDPR, HIPAA, and CCPA regulations?',
         a: 'Yes. Because your files never leave your computer or transmit to any external server, using this client-side editor prevents third-party data processing liability under GDPR, HIPAA, and CCPA.'
-      },
-      {
-        q: 'How does EditPDF compare to Adobe Acrobat or Smallpdf?',
-        a: 'Unlike Adobe Acrobat (which requires expensive monthly subscriptions) or Smallpdf/iLovePDF (which upload your sensitive documents to remote cloud servers), EditPDF is free, instantaneous, and strictly client-side.'
       }
     ]
   },

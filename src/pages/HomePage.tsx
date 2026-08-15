@@ -3,6 +3,7 @@ import Hero from '../components/Hero';
 import HowItWorks from '../components/HowItWorks';
 import UltimateGuide from '../components/UltimateGuide';
 import FAQ from '../components/FAQ';
+import ClientSideSecurityDeepDive from '../components/ClientSideSecurityDeepDive';
 import { SEO_DATA } from '../utils/seo';
 
 interface HomePageProps {
@@ -36,6 +37,9 @@ export default function HomePage({ onFileSelected }: HomePageProps) {
         title="Frequently Asked Questions"
         subtitle="Everything you need to know about 100% private in-browser PDF editing."
       />
+
+      {/* Detailed Security Deep-Dive & On-Page Long-Form Content (500-800+ words below FAQ) */}
+      <ClientSideSecurityDeepDive />
     </div>
   );
 }
