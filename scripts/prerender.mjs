@@ -251,13 +251,19 @@ async function runPrerender() {
       fs.writeFileSync(templatePath, routeHtml, 'utf-8');
       console.log(`  ✓ / (index.html populated with full DOM + SEO head)`);
     } else {
-      const targetDir = path.join(distDir, route.replace(/^\//, ''));
+      const cleanName = route.replace(/^\//, '');
+      const targetDir = path.join(distDir, cleanName);
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
       const targetFile = path.join(targetDir, 'index.html');
       fs.writeFileSync(targetFile, routeHtml, 'utf-8');
-      console.log(`  ✓ ${route} -> ${targetFile} (Full DOM pre-rendered)`);
+
+      // Also write clean route.html (e.g. dist/chrome-pdf-editor.html) for Vercel cleanUrls
+      const flatHtmlFile = path.join(distDir, `${cleanName}.html`);
+      fs.writeFileSync(flatHtmlFile, routeHtml, 'utf-8');
+
+      console.log(`  ✓ ${route} -> ${targetFile} & ${cleanName}.html (Full DOM pre-rendered)`);
     }
   }
 
