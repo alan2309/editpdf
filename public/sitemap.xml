@@ -43,4 +43,28 @@
     <priority>0.90</priority>
   </url>
 
+  <!-- Legal: Privacy Policy -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/privacy-policy</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.50</priority>
+  </url>
+
+  <!-- Legal: About Us -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/about</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.50</priority>
+  </url>
+
+  <!-- Legal: Terms of Service -->
+  <url>
+    <loc>https://editpdf.adwyzors.com/terms</loc>
+    <lastmod>2026-08-15</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.50</priority>
+  </url>
+
 </urlset>

@@ -1,19 +1,8 @@
-export interface PageSEO {
-  title: string;
-  description: string;
-  keywords: string;
-  canonical: string;
-  ogTitle: string;
-  ogDescription: string;
-  h1: string;
-  h1Highlight: string;
-  h1Subtitle: string;
-  badge: string;
-  schemaType?: string;
-  faqs: Array<{ q: string; a: string }>;
-}
+import fs from 'fs';
+import path from 'path';
 
-export const SEO_DATA: Record<string, PageSEO> = {
+// Import SEO data structure
+const SEO_DATA = {
   '/': {
     title: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
     description: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Click any text to edit, format, and download modified PDFs instantly.',
@@ -21,10 +10,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/',
     ogTitle: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
     ogDescription: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Edit text, format fonts, and download instantly.',
-    h1: '100% Private PDF Text Editor',
-    h1Highlight: 'Edit in Browser',
-    h1Subtitle: '(No Server Upload)',
-    badge: '100% Private · Zero Server Upload · No Signup Required',
     faqs: [
       {
         q: 'Is this PDF text editor really free?',
@@ -41,14 +26,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
       {
         q: 'What types of PDFs can I edit?',
         a: 'You can edit any text-based PDF up to 50MB. Scanned image-based PDFs are not currently supported for direct text editing.'
-      },
-      {
-        q: 'Will the edited text match the original PDF fonts?',
-        a: 'When you edit text, the editor matches the font family (Helvetica/Sans-Serif, Times-Roman/Serif, or Courier/Monospace), font size, styling (bold, italic, underline), and text color with precision.'
-      },
-      {
-        q: 'Is this tool compliant with GDPR, HIPAA, and CCPA regulations?',
-        a: 'Yes. Because your files never leave your computer or transmit to any external server, using this client-side editor prevents third-party data processing liability under GDPR, HIPAA, and CCPA.'
       }
     ]
   },
@@ -59,10 +36,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/secure-pdf-editor',
     ogTitle: 'Secure PDF Editor - Zero Upload Confidential Editing',
     ogDescription: 'Edit sensitive and confidential PDFs without remote server risks. Guaranteed zero network transfer of document data.',
-    h1: 'Confidential & Secure PDF Editor',
-    h1Highlight: 'Zero Cloud Storage',
-    h1Subtitle: 'Built for Legal, Medical & HR Privacy',
-    badge: 'Enterprise-Grade Privacy · HIPAA & GDPR Safe · Client-Side Only',
     faqs: [
       {
         q: 'Why is client-side PDF editing safer for confidential documents?',
@@ -89,10 +62,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/edit-bank-statement-pdf',
     ogTitle: 'Edit Bank Statement PDF Privately - No Server Upload',
     ogDescription: 'Safely edit financial statements and PDF documents directly in your browser without exposing your bank account details or financial data.',
-    h1: 'Edit Bank Statement & Financial PDFs',
-    h1Highlight: '100% Privately',
-    h1Subtitle: 'Never Upload Bank Numbers to Cloud Servers',
-    badge: 'Financial Privacy · Bank-Grade Protection · Zero Server Logging',
     faqs: [
       {
         q: 'Is it safe to edit bank statements and financial PDFs with this tool?',
@@ -119,10 +88,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/redact-pdf-in-browser',
     ogTitle: 'Redact PDF in Browser - Private Text Removal & Sanitization',
     ogDescription: 'Safely blackout or remove confidential text and numbers from PDF files without cloud uploads.',
-    h1: 'Redact & Sanitize PDF in Browser',
-    h1Highlight: 'Zero Cloud Exposure',
-    h1Subtitle: 'Remove Sensitive PII & Confidential Data Locally',
-    badge: 'True Vector Redaction · No Cloud Footprint · Free & Instant',
     faqs: [
       {
         q: 'How is this redaction different from drawing a black box in a previewer?',
@@ -145,10 +110,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/chrome-pdf-editor',
     ogTitle: 'Google Chrome PDF Editor - Edit PDFs In-Tab With Zero Extensions',
     ogDescription: 'Edit text in PDF documents inside Google Chrome and Chromium browsers. Ultra-fast WebAssembly engine, zero extension install required.',
-    h1: 'Google Chrome PDF Text Editor',
-    h1Highlight: 'In-Tab & Extension-Free',
-    h1Subtitle: 'High-Performance WebAssembly PDF Editing in Your Browser',
-    badge: 'Chrome & Chromium Optimized · No Extension Install · Instant V8 Speed',
     faqs: [
       {
         q: 'Do I need to install a Google Chrome extension or software?',
@@ -171,10 +132,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/privacy-policy',
     ogTitle: 'Privacy Policy - EditPDF (100% Client-Side Privacy)',
     ogDescription: 'Zero server uploads, zero document logging. Read how EditPDF guarantees document confidentiality.',
-    h1: 'Privacy Policy',
-    h1Highlight: 'Zero Data Collection',
-    h1Subtitle: '100% Client-Side In-Browser Processing',
-    badge: 'Privacy Policy · Effective Aug 2026',
     faqs: []
   },
   '/about': {
@@ -184,10 +141,6 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/about',
     ogTitle: 'About EditPDF - Private Document Editing by Adwyzors',
     ogDescription: 'We believe document editing should be private by default. Learn about EditPDF.',
-    h1: 'About EditPDF',
-    h1Highlight: 'Private by Default',
-    h1Subtitle: 'Built by Adwyzors Software Studio',
-    badge: 'About Adwyzors · Privacy Mission',
     faqs: []
   },
   '/terms': {
@@ -197,80 +150,95 @@ export const SEO_DATA: Record<string, PageSEO> = {
     canonical: 'https://editpdf.adwyzors.com/terms',
     ogTitle: 'Terms of Service - EditPDF by Adwyzors',
     ogDescription: 'Read the Terms of Service governing the use of EditPDF.',
-    h1: 'Terms of Service',
-    h1Highlight: 'Legal & Guidelines',
-    h1Subtitle: 'Rules and Responsibilities for Using EditPDF',
-    badge: 'Terms of Service · Effective Aug 2026',
     faqs: []
   }
 };
 
-export function updateMetaForPath(path: string) {
-  if (typeof document === 'undefined') return;
-  const normalizedPath = path === '' || path === '/' ? '/' : path.replace(/\/$/, '');
-  const data = SEO_DATA[normalizedPath] || SEO_DATA['/'];
+function generateRouteHTML(templateHtml, route, data) {
+  let html = templateHtml;
 
-  // Update Title
-  document.title = data.title;
+  // Replace <title>
+  html = html.replace(/<title>.*?<\/title>/, `<title>${data.title}</title>`);
 
-  // Update Meta Description
-  let metaDesc = document.querySelector('meta[name="description"]');
-  if (!metaDesc) {
-    metaDesc = document.createElement('meta');
-    metaDesc.setAttribute('name', 'description');
-    document.head.appendChild(metaDesc);
-  }
-  metaDesc.setAttribute('content', data.description);
+  // Replace meta title
+  html = html.replace(/<meta name="title" content=".*?" \/>/, `<meta name="title" content="${data.title}" />`);
 
-  // Update Meta Keywords
-  let metaKeywords = document.querySelector('meta[name="keywords"]');
-  if (!metaKeywords) {
-    metaKeywords = document.createElement('meta');
-    metaKeywords.setAttribute('name', 'keywords');
-    document.head.appendChild(metaKeywords);
-  }
-  metaKeywords.setAttribute('content', data.keywords);
+  // Replace meta description
+  html = html.replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${data.description}" />`);
 
-  // Update Canonical
-  let canonicalLink = document.querySelector('link[rel="canonical"]');
-  if (!canonicalLink) {
-    canonicalLink = document.createElement('link');
-    canonicalLink.setAttribute('rel', 'canonical');
-    document.head.appendChild(canonicalLink);
-  }
-  canonicalLink.setAttribute('href', data.canonical);
+  // Replace meta keywords
+  html = html.replace(/<meta name="keywords" content=".*?" \/>/, `<meta name="keywords" content="${data.keywords}" />`);
 
-  // Update OpenGraph
-  const ogTitle = document.querySelector('meta[property="og:title"]');
-  if (ogTitle) ogTitle.setAttribute('content', data.ogTitle);
+  // Replace canonical
+  html = html.replace(/<link rel="canonical" href=".*?" \/>/, `<link rel="canonical" href="${data.canonical}" />`);
 
-  const ogDesc = document.querySelector('meta[property="og:description"]');
-  if (ogDesc) ogDesc.setAttribute('content', data.ogDescription);
+  // Replace OpenGraph
+  html = html.replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${data.ogTitle}" />`);
+  html = html.replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${data.ogDescription}" />`);
+  html = html.replace(/<meta property="og:url" content=".*?" \/>/, `<meta property="og:url" content="${data.canonical}" />`);
 
-  const ogUrl = document.querySelector('meta[property="og:url"]');
-  if (ogUrl) ogUrl.setAttribute('content', data.canonical);
+  // Replace Twitter
+  html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${data.ogTitle}" />`);
+  html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${data.ogDescription}" />`);
+  html = html.replace(/<meta name="twitter:url" content=".*?" \/>/, `<meta name="twitter:url" content="${data.canonical}" />`);
 
-  // Update dynamic FAQPage JSON-LD Schema
-  let dynamicFaqSchema = document.getElementById('dynamic-faq-schema') as HTMLScriptElement | null;
-  if (!dynamicFaqSchema) {
-    dynamicFaqSchema = document.createElement('script');
-    dynamicFaqSchema.id = 'dynamic-faq-schema';
-    dynamicFaqSchema.type = 'application/ld+json';
-    document.head.appendChild(dynamicFaqSchema);
+  // Update dynamic FAQPage Schema if faqs exist
+  if (data.faqs && data.faqs.length > 0) {
+    const faqSchemaObj = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: data.faqs.map(item => ({
+        '@type': 'Question',
+        name: item.q,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: item.a
+        }
+      }))
+    };
+
+    const faqScriptTag = `<script type="application/ld+json" id="dynamic-faq-schema">\n${JSON.stringify(faqSchemaObj, null, 2)}\n    </script>`;
+    html = html.replace(/<script type="application\/ld\+json" id="dynamic-faq-schema">[\s\S]*?<\/script>/, faqScriptTag);
   }
 
-  const faqSchemaObj = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: data.faqs.map(item => ({
-      '@type': 'Question',
-      name: item.q,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: item.a
-      }
-    }))
-  };
-
-  dynamicFaqSchema.text = JSON.stringify(faqSchemaObj, null, 2);
+  return html;
 }
+
+async function runPrerender() {
+  const distDir = path.resolve('dist');
+  if (!fs.existsSync(distDir)) {
+    console.error('dist directory not found. Please run vite build first.');
+    process.exit(1);
+  }
+
+  const templatePath = path.join(distDir, 'index.html');
+  const templateHtml = fs.readFileSync(templatePath, 'utf-8');
+
+  console.log('Generating pre-rendered static route HTML files for SEO crawlers...');
+
+  for (const [route, data] of Object.entries(SEO_DATA)) {
+    const routeHtml = generateRouteHTML(templateHtml, route, data);
+
+    if (route === '/') {
+      fs.writeFileSync(templatePath, routeHtml, 'utf-8');
+      console.log(`  ✓ / (index.html updated with root SEO meta)`);
+    } else {
+      const targetDir = path.join(distDir, route.replace(/^\//, ''));
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      const targetFile = path.join(targetDir, 'index.html');
+      fs.writeFileSync(targetFile, routeHtml, 'utf-8');
+      console.log(`  ✓ ${route} -> ${targetFile}`);
+    }
+  }
+
+  // Create 404.html fallback for SPA hosting (GitHub Pages, Netlify, Cloudflare Pages)
+  const notFoundPath = path.join(distDir, '404.html');
+  fs.writeFileSync(notFoundPath, templateHtml, 'utf-8');
+  console.log('  ✓ 404.html fallback created');
+
+  console.log('Pre-rendering completed successfully!');
+}
+
+runPrerender().catch(console.error);

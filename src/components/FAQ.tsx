@@ -85,27 +85,25 @@ export default function FAQ({
                   />
                 </button>
                 
-                {/* Always rendered in the DOM for search indexing, styled via CSS display & opacity */}
+                {/* Always in DOM for Googlebot — uses max-height:0 instead of display:none */}
                 <div
                   id={`faq-answer-${i}`}
                   style={{
-                    display: isOpen ? 'block' : 'none',
-                    padding: '0 1.35rem 1.25rem',
+                    maxHeight: isOpen ? '600px' : '0',
+                    overflow: 'hidden',
+                    opacity: isOpen ? 1 : 0,
+                    transition: 'max-height 0.35s cubic-bezier(0.16,1,0.3,1), opacity 0.25s ease, padding 0.3s ease',
+                    padding: isOpen ? '0 1.35rem 1.25rem' : '0 1.35rem 0',
                     color: 'rgba(240,240,240,0.65)',
                     fontSize: '0.9rem',
                     lineHeight: 1.75,
-                    borderTop: isOpen ? '1px solid rgba(255,255,255,0.06)' : 'none',
-                    paddingTop: isOpen ? '1rem' : 0,
+                    borderTop: isOpen ? '1px solid rgba(255,255,255,0.06)' : '1px solid transparent',
+                    paddingTop: isOpen ? '1rem' : '0',
                   }}
+                  aria-hidden={!isOpen}
                 >
                   <p style={{ margin: 0 }}>{faq.a}</p>
                 </div>
-                {/* Fallback hidden container for search bots to read all text even if styles differ */}
-                <noscript>
-                  <div style={{ padding: '0 1.35rem 1.25rem', color: 'rgba(240,240,240,0.65)' }}>
-                    <p>{faq.a}</p>
-                  </div>
-                </noscript>
               </div>
             );
           })}

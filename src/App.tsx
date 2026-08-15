@@ -7,6 +7,9 @@ import SecurePdfEditorPage from './pages/SecurePdfEditorPage';
 import BankStatementPdfEditorPage from './pages/BankStatementPdfEditorPage';
 import RedactPdfInBrowserPage from './pages/RedactPdfInBrowserPage';
 import ChromePdfEditorPage from './pages/ChromePdfEditorPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import AboutPage from './pages/AboutPage';
+import TermsPage from './pages/TermsPage';
 import { RouterProvider, useRouter } from './context/RouterContext';
 import { usePDFEditor } from './hooks/usePDFEditor';
 
@@ -47,6 +50,12 @@ function MainApp() {
         return <RedactPdfInBrowserPage onFileSelected={handleFileSelected} />;
       case '/chrome-pdf-editor':
         return <ChromePdfEditorPage onFileSelected={handleFileSelected} />;
+      case '/privacy-policy':
+        return <PrivacyPolicyPage />;
+      case '/about':
+        return <AboutPage />;
+      case '/terms':
+        return <TermsPage />;
       case '/':
       default:
         return <HomePage onFileSelected={handleFileSelected} />;

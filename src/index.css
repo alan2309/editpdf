@@ -222,3 +222,42 @@ body {
 /* ============ Tab hide scrollbar ============ */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ============ Responsive: Mobile (< 768px) ============ */
+@media (max-width: 767px) {
+  /* Show hamburger button, hide desktop nav */
+  .nav-mobile-toggle {
+    display: flex !important;
+  }
+  .nav-desktop-links {
+    display: none !important;
+  }
+  .nav-desktop-badge {
+    display: none !important;
+  }
+  /* Enable mobile overlay to be controlled by JS transform */
+  .nav-mobile-overlay {
+    display: block !important;
+  }
+
+  /* Footer: stack columns vertically */
+  .footer-grid {
+    grid-template-columns: 1fr !important;
+    gap: 2rem !important;
+  }
+
+  /* Footer bottom bar: stack on small screens */
+  .footer-bottom {
+    flex-direction: column !important;
+    text-align: center !important;
+    gap: 0.75rem !important;
+  }
+}
+
+/* ============ Responsive: Tablet (768px – 1023px) ============ */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+

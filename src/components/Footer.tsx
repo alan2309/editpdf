@@ -11,7 +11,7 @@ export default function Footer() {
       padding: '4rem 1.5rem 2.5rem',
     }}>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '3rem', marginBottom: '3.5rem' }}>
+        <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '3rem', marginBottom: '3.5rem' }}>
           
           {/* Brand Column */}
           <div style={{ maxWidth: 300 }}>
@@ -76,7 +76,7 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Adwyzors Network */}
+          {/* Adwyzors Network + Legal */}
           <div>
             <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'rgba(240,240,240,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 1rem' }}>
               Adwyzors Network
@@ -91,12 +91,28 @@ export default function Footer() {
                 <ExternalLink size={11} />
               </a>
             </div>
+
+            {/* Legal Links */}
+            <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'rgba(240,240,240,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '1.5rem 0 0.75rem' }}>
+              Legal
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <CustomLink href="/privacy-policy" style={{ fontSize: '0.875rem', color: 'rgba(240,240,240,0.6)', textDecoration: 'none' }}>
+                Privacy Policy
+              </CustomLink>
+              <CustomLink href="/about" style={{ fontSize: '0.875rem', color: 'rgba(240,240,240,0.6)', textDecoration: 'none' }}>
+                About Us
+              </CustomLink>
+              <CustomLink href="/terms" style={{ fontSize: '0.875rem', color: 'rgba(240,240,240,0.6)', textDecoration: 'none' }}>
+                Terms of Service
+              </CustomLink>
+            </div>
           </div>
 
         </div>
 
         {/* Bottom bar */}
-        <div style={{
+        <div className="footer-bottom" style={{
           borderTop: '1px solid rgba(255,255,255,0.07)',
           paddingTop: '1.75rem',
           display: 'flex', flexWrap: 'wrap', gap: '1rem',
