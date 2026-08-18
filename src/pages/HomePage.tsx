@@ -1,6 +1,5 @@
 import React from 'react';
 import Hero from '../components/Hero';
-import ToolCatalog from '../components/ToolCatalog';
 import HowItWorks from '../components/HowItWorks';
 import UltimateGuide from '../components/UltimateGuide';
 import FAQ from '../components/FAQ';
@@ -23,11 +22,8 @@ export default function HomePage({ onFileSelected }: HomePageProps) {
         h1Title={seo.h1}
         h1Highlight={seo.h1Highlight}
         h1Subtitle={seo.h1Subtitle}
-        description="Edit text, sign contracts, insert rubber stamps, find & replace, or use our complete suite of 15+ private client-side PDF tools — all processed 100% locally in your browser. Your files never leave your device."
+        description="Edit text, sign contracts, insert rubber stamps, find & replace, or redact PDF documents — all processed 100% locally in your browser. Your files never leave your device."
       />
-
-      {/* PDF Toolbox Catalog Section */}
-      <ToolCatalog />
 
       {/* 4 Step Workflow */}
       <HowItWorks />
@@ -39,7 +35,7 @@ export default function HomePage({ onFileSelected }: HomePageProps) {
       <FAQ
         items={seo.faqs}
         title="Frequently Asked Questions"
-        subtitle="Everything you need to know about 100% private in-browser PDF editing and toolbox utilities."
+        subtitle="Everything you need to know about 100% private in-browser PDF editing and document privacy."
       />
 
       {/* Detailed Security Deep-Dive & On-Page Long-Form Content */}

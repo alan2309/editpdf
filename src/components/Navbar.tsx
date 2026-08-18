@@ -1,51 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { FileText, ChevronDown, Menu, X, Combine, Scissors, FileOutput, Trash2, ArrowUpDown, RotateCw, Minimize2, Image as ImageIcon, FileUp, Stamp, Hash, Layers, Lock, ShieldCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, Menu, X } from 'lucide-react';
 import { CustomLink, useRouter } from '../context/RouterContext';
 
 export default function Navbar() {
-  const [toolsDropdownOpen, setToolsDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { currentPath } = useRouter();
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const toolCategories = [
-    {
-      title: 'Page Tools',
-      items: [
-        { label: 'Merge PDF', href: '/merge-pdf', icon: <Combine size={14} /> },
-        { label: 'Split PDF', href: '/split-pdf', icon: <Scissors size={14} /> },
-        { label: 'Extract Pages', href: '/extract-pdf-pages', icon: <FileOutput size={14} /> },
-        { label: 'Delete Pages', href: '/delete-pdf-pages', icon: <Trash2 size={14} /> },
-        { label: 'Reorder Pages', href: '/reorder-pdf-pages', icon: <ArrowUpDown size={14} /> },
-        { label: 'Rotate PDF', href: '/rotate-pdf', icon: <RotateCw size={14} /> },
-      ],
-    },
-    {
-      title: 'Convert & Optimize',
-      items: [
-        { label: 'Compress PDF', href: '/compress-pdf', icon: <Minimize2 size={14} /> },
-        { label: 'PDF to JPG', href: '/pdf-to-jpg', icon: <ImageIcon size={14} /> },
-        { label: 'PDF to PNG', href: '/pdf-to-png', icon: <ImageIcon size={14} /> },
-        { label: 'JPG to PDF', href: '/jpg-to-pdf', icon: <FileUp size={14} /> },
-        { label: 'PNG to PDF', href: '/png-to-pdf', icon: <FileUp size={14} /> },
-      ],
-    },
-    {
-      title: 'Enhance & Secure',
-      items: [
-        { label: 'Watermark PDF', href: '/watermark-pdf', icon: <Stamp size={14} /> },
-        { label: 'Page Numbers', href: '/pdf-page-numbers', icon: <Hash size={14} /> },
-        { label: 'Flatten PDF', href: '/flatten-pdf', icon: <Layers size={14} /> },
-        { label: 'Protect PDF', href: '/protect-pdf', icon: <Lock size={14} /> },
-        { label: 'Secure PDF Editor', href: '/secure-pdf-editor', icon: <ShieldCheck size={14} /> },
-      ],
-    },
-  ];
-
-  // Close mobile menu and dropdown on route change
+  // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
-    setToolsDropdownOpen(false);
   }, [currentPath]);
 
   // Lock body scroll when mobile menu is open
@@ -57,19 +20,6 @@ export default function Navbar() {
     }
     return () => { document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setToolsDropdownOpen(false);
-      }
-    }
-    if (toolsDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [toolsDropdownOpen]);
 
   return (
     <>
@@ -116,112 +66,6 @@ export default function Navbar() {
               }}
             >
               PDF Editor
-            </CustomLink>
-
-            {/* Categorized PDF Tools Dropdown */}
-            <div style={{ position: 'relative' }} ref={dropdownRef}>
-              <button
-                onClick={() => setToolsDropdownOpen(!toolsDropdownOpen)}
-                style={{
-                  background: toolsDropdownOpen || (currentPath !== '/' && currentPath !== '/about' && currentPath !== '/privacy-policy' && currentPath !== '/terms') ? 'rgba(77,107,250,0.12)' : 'transparent',
-                  border: 'none',
-                  color: toolsDropdownOpen || (currentPath !== '/' && currentPath !== '/about' && currentPath !== '/privacy-policy' && currentPath !== '/terms') ? '#7c9aff' : 'rgba(240,240,240,0.6)',
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
-                  padding: '0.375rem 0.75rem',
-                  borderRadius: '0.5rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                  transition: 'all 0.15s',
-                }}
-              >
-                <span>All PDF Tools</span>
-                <ChevronDown size={14} style={{ transform: toolsDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-              </button>
-
-              {toolsDropdownOpen && (
-                <div
-                  className="card-glass"
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    left: '-100px',
-                    width: '540px',
-                    borderRadius: '1rem',
-                    padding: '1.25rem',
-                    boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
-                    zIndex: 100,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    background: '#111118',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '1rem',
-                  }}
-                >
-                  {toolCategories.map(cat => (
-                    <div key={cat.title} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                      <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'rgba(240,240,240,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0.25rem 0.5rem' }}>
-                        {cat.title}
-                      </div>
-                      {cat.items.map(item => (
-                        <CustomLink
-                          key={item.href}
-                          href={item.href}
-                          onClick={() => setToolsDropdownOpen(false)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.4rem 0.5rem',
-                            borderRadius: '0.5rem',
-                            fontSize: '0.82rem',
-                            color: currentPath === item.href ? '#4d6bfa' : 'rgba(240,240,240,0.85)',
-                            background: currentPath === item.href ? 'rgba(77,107,250,0.1)' : 'transparent',
-                            textDecoration: 'none',
-                            fontWeight: 500,
-                            transition: 'background 0.15s',
-                          }}
-                        >
-                          <span style={{ color: currentPath === item.href ? '#4d6bfa' : 'rgba(240,240,240,0.5)' }}>{item.icon}</span>
-                          <span>{item.label}</span>
-                        </CustomLink>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <CustomLink
-              href="/compress-pdf"
-              style={{
-                color: currentPath === '/compress-pdf' ? '#f0f0f0' : 'rgba(240,240,240,0.6)',
-                textDecoration: 'none',
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                padding: '0.375rem 0.75rem',
-                borderRadius: '0.5rem',
-                background: currentPath === '/compress-pdf' ? 'rgba(255,255,255,0.08)' : 'transparent',
-              }}
-            >
-              Compress
-            </CustomLink>
-
-            <CustomLink
-              href="/merge-pdf"
-              style={{
-                color: currentPath === '/merge-pdf' ? '#f0f0f0' : 'rgba(240,240,240,0.6)',
-                textDecoration: 'none',
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                padding: '0.375rem 0.75rem',
-                borderRadius: '0.5rem',
-                background: currentPath === '/merge-pdf' ? 'rgba(255,255,255,0.08)' : 'transparent',
-              }}
-            >
-              Merge
             </CustomLink>
 
             <a
@@ -309,41 +153,10 @@ export default function Navbar() {
               textDecoration: 'none',
             }}
           >
-            📄 PDF Editor (Flagship)
+            📄 PDF Editor
           </CustomLink>
 
-          {toolCategories.map(cat => (
-            <div key={cat.title} style={{ marginTop: '0.5rem' }}>
-              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'rgba(240,240,240,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0.25rem 0.5rem' }}>
-                {cat.title}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.35rem', marginTop: '0.25rem' }}>
-                {cat.items.map(item => (
-                  <CustomLink
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      padding: '0.5rem 0.65rem',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.82rem',
-                      color: currentPath === item.href ? '#7c9aff' : 'rgba(240,240,240,0.75)',
-                      background: currentPath === item.href ? 'rgba(77,107,250,0.1)' : 'rgba(255,255,255,0.03)',
-                      textDecoration: 'none',
-                    }}
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </CustomLink>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '1rem', paddingTop: '0.75rem' }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
             <a
               href="/#faq"
               onClick={() => setMobileMenuOpen(false)}
