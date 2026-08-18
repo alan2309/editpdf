@@ -10,8 +10,8 @@ import type { OperationResult, CompressOptions } from '../../pdf/types';
 
 export default function CompressPdfPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [level, setLevel] = useState<CompressOptions['level']>('balanced');
-  const [targetDpi, setTargetDpi] = useState<CompressOptions['targetDpi']>(150);
+  const [mode, setMode] = useState<CompressOptions['mode']>('balanced');
+  const [targetDpi, setTargetDpi] = useState<72 | 100 | 150>(100);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
@@ -31,9 +31,9 @@ export default function CompressPdfPage() {
       const res = await compressPdf(
         file,
         {
-          level,
-          targetDpi,
-          quality: level === 'maximum' ? 0.65 : level === 'balanced' ? 0.78 : 0.9,
+          mode,
+          targetDpi: mode === 'maximum' ? targetDpi : 150,
+          quality: mode === 'maximum' ? 0.6 : 0.78,
         },
         (p, msg) => {
           setProgress(p);
@@ -103,36 +103,30 @@ export default function CompressPdfPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem' }}>
               <div
-                onClick={() => {
-                  setLevel('high-quality');
-                  setTargetDpi(200);
-                }}
+                onClick={() => setMode('safe')}
                 style={{
                   padding: '1rem',
                   borderRadius: '0.75rem',
-                  border: `1.5px solid ${level === 'high-quality' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
-                  background: level === 'high-quality' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
+                  border: `1.5px solid ${mode === 'safe' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  background: mode === 'safe' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Basic (Safe)</strong>
+                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Safe</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Optimizes streams while 100% preserving vector text, fonts & links.
+                  Preserves original PDF structure and selectable text. May produce little or no size reduction.
                 </div>
               </div>
 
               <div
-                onClick={() => {
-                  setLevel('balanced');
-                  setTargetDpi(150);
-                }}
+                onClick={() => setMode('balanced')}
                 style={{
                   padding: '1rem',
                   borderRadius: '0.75rem',
-                  border: `1.5px solid ${level === 'balanced' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
-                  background: level === 'balanced' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
+                  border: `1.5px solid ${mode === 'balanced' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  background: mode === 'balanced' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                   position: 'relative',
                 }}
@@ -144,20 +138,17 @@ export default function CompressPdfPage() {
                   <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Balanced</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Cleans unreferenced objects and compresses cross-reference streams.
+                  Reduces image data &amp; cleans object streams while preserving searchable text and vectors.
                 </div>
               </div>
 
               <div
-                onClick={() => {
-                  setLevel('maximum');
-                  setTargetDpi(100);
-                }}
+                onClick={() => setMode('maximum')}
                 style={{
                   padding: '1rem',
                   borderRadius: '0.75rem',
-                  border: `1.5px solid ${level === 'maximum' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
-                  background: level === 'maximum' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
+                  border: `1.5px solid ${mode === 'maximum' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  background: mode === 'maximum' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                 }}
               >
@@ -165,14 +156,35 @@ export default function CompressPdfPage() {
                   <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Maximum</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Downsamples pages at 100 DPI for smallest size.
+                  Strongest reduction. Pages are converted to images and text is no longer selectable.
                 </div>
               </div>
             </div>
 
-            {level === 'maximum' && (
-              <div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.65rem', color: '#fcd34d', fontSize: '0.78rem', lineHeight: 1.4 }}>
-                ⚠️ <strong>Notice:</strong> Maximum compression rasterizes pages to achieve extreme file size reduction. Selectable text and interactive links will become image-based.
+            {mode === 'maximum' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'rgba(240,240,240,0.7)', marginBottom: '0.4rem' }}>
+                    Target Resolution:
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {([72, 100, 150] as const).map(dpi => (
+                      <button
+                        key={dpi}
+                        type="button"
+                        className={targetDpi === dpi ? 'btn-primary' : 'btn-secondary'}
+                        style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}
+                        onClick={() => setTargetDpi(dpi)}
+                      >
+                        {dpi} DPI
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.65rem', color: '#fcd34d', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                  ⚠️ <strong>Notice:</strong> Maximum compression converts PDF pages into images and removes selectable/searchable text.
+                </div>
               </div>
             )}
           </div>

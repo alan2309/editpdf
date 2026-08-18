@@ -101,7 +101,7 @@ export default function DownloadResult({ result, onReset, toolName }: DownloadRe
           </div>
         </div>
 
-        {hasSavings && (
+        {hasSavings ? (
           <div
             style={{
               background: 'rgba(34,197,94,0.15)',
@@ -115,8 +115,28 @@ export default function DownloadResult({ result, onReset, toolName }: DownloadRe
             <div style={{ fontSize: '0.7rem', color: '#86efac', textTransform: 'uppercase', fontWeight: 700 }}>Saved</div>
             <div style={{ fontSize: '0.95rem', color: '#4ade80', fontWeight: 800 }}>-{savingsPercent}%</div>
           </div>
-        )}
+        ) : toolName === 'Compress PDF' && result.isOriginalRetained ? (
+          <div
+            style={{
+              background: 'rgba(245,158,11,0.15)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              borderRadius: '0.5rem',
+              padding: '0.35rem 0.65rem',
+              textAlign: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ fontSize: '0.68rem', color: '#fcd34d', textTransform: 'uppercase', fontWeight: 700 }}>Original</div>
+            <div style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 800 }}>Retained</div>
+          </div>
+        ) : null}
       </div>
+
+      {toolName === 'Compress PDF' && result.isOriginalRetained && (
+        <div style={{ margin: '-1rem 0 1.5rem', padding: '0.65rem 0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.65rem', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.78rem', color: 'rgba(240,240,240,0.6)' }}>
+          ℹ️ <strong>Document Quality Protected:</strong> No smaller PDF could be produced without altering visual clarity or vector fidelity. The original file has been preserved.
+        </div>
+      )}
 
       {/* Main Download Action */}
       <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '2rem' }}>

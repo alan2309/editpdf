@@ -16,6 +16,9 @@ export interface OperationResult {
   originalSize?: number;
   pageCount?: number;
   isZip?: boolean;
+  isCompressed?: boolean;
+  isOriginalRetained?: boolean;
+  compressionSavingsPercent?: number;
 }
 
 export interface SplitOptions {
@@ -69,9 +72,9 @@ export interface PdfToImageOptions {
 }
 
 export interface CompressOptions {
-  level: 'maximum' | 'balanced' | 'high-quality';
-  targetDpi: 72 | 100 | 150 | 200;
-  quality: number; // 0.1 to 1.0
+  mode: 'safe' | 'balanced' | 'maximum';
+  targetDpi?: 72 | 100 | 150 | 200;
+  quality?: number; // 0.1 to 1.0 for raster JPEG
 }
 
 export interface ProtectOptions {

@@ -45,15 +45,23 @@ export async function verifyPdf(
 
   let pageCount = 0;
 
-  // 3. Attempt structural parse with pdf-lib or QPDF
+  // 3. Attempt structural parse with pdf-lib
   try {
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
     pageCount = doc.getPageCount();
 
     if (pageCount <= 0) {
       errors.push('PDF document contains 0 pages.');
-    } else if (expectedPages !== undefined && pageCount !== expectedPages) {
-      errors.push(`Page count mismatch: expected ${expectedPages}, got ${pageCount}.`);
+    } else {
+      if (expectedPages !== undefined && pageCount !== expectedPages) {
+        errors.push(`Page count mismatch: expected ${expectedPages}, got ${pageCount}.`);
+      }
+      for (let i = 0; i < pageCount; i++) {
+        const p = doc.getPage(i);
+        if (p.getWidth() <= 0 || p.getHeight() <= 0) {
+          errors.push(`Page ${i + 1} has invalid dimensions (${p.getWidth()}x${p.getHeight()}).`);
+        }
+      }
     }
   } catch (err: any) {
     if (!isEncrypted) {
