@@ -15,17 +15,21 @@ export interface PageSEO {
 
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
-    title: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free (No Upload)',
-    description: 'Free, private online PDF text editor, digital signatures & stamp inserter. 100% in-browser processing, no uploads. Edit text, sign contracts, insert APPROVED / PAID stamps, checkmarks, logos, and download instantly.',
-    keywords: '100% private pdf editor, edit pdf online free no upload, stamp documents online free, insert image into pdf, add logo to pdf, stamp approved on pdf, add checkmark to pdf, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
+    title: '100% Private PDF Editor | Edit, Sign, Stamp, Find & Replace PDF Online Free (No Upload)',
+    description: 'Free, private online PDF text editor, find & replace, digital signatures & stamp inserter. 100% in-browser processing, no uploads. Search and replace text across pages, sign contracts, insert rubber stamps, and download instantly.',
+    keywords: '100% private pdf editor, edit pdf online free no upload, find and replace text in pdf, search and replace pdf online free, batch replace text in pdf, stamp documents online free, insert image into pdf, add logo to pdf, stamp approved on pdf, add checkmark to pdf, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free',
-    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, insert rubber stamps & logos, and sanitize sensitive data instantly.',
+    ogTitle: '100% Private PDF Editor | Edit, Sign, Stamp & Find-Replace PDF Online Free',
+    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Search & replace text across all pages, sign contracts, insert rubber stamps & logos, and sanitize data instantly.',
     h1: '100% Private PDF Editor, Signer & Stamper',
-    h1Highlight: 'Edit, Sign & Stamp in Browser',
+    h1Highlight: 'Edit, Sign & Replace in Browser',
     h1Subtitle: '(Zero Server Upload · 100% Confidential)',
-    badge: '100% Private · Digital Signatures · Official Stamps · True Redaction · Zero Server Upload',
+    badge: '100% Private · Find & Replace · Digital Signatures · Official Stamps · True Redaction · Zero Server Upload',
     faqs: [
+      {
+        q: 'Can I find and replace text across multiple pages in my PDF?',
+        a: 'Yes! With our multi-page Find & Replace tool (press Ctrl+F or click Find & Replace), you can search terms with Match Case and Whole Word options, replace single matches, batch replace all occurrences across the entire document, or redact all matches in one click.'
+      },
       {
         q: 'Is this PDF editor, digital signature, and document stamper really free?',
         a: 'Yes, it is 100% free to use with no hidden fees, no watermark, no signup required, and no usage limits.'

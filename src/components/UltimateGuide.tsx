@@ -58,6 +58,12 @@ export default function UltimateGuide() {
       adobe: 'Included',
     },
     {
+      feature: 'Multi-Page Find & Replace & Batch Redact',
+      clientSide: 'Instant In-Browser (Zero Cloud Conversion)',
+      cloudTools: 'Paid or Requires Converting to Word',
+      adobe: 'Acrobat Pro Only',
+    },
+    {
       feature: 'Offline Capability',
       clientSide: 'Works fully offline once loaded',
       cloudTools: 'Fails without internet',

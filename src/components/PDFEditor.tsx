@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info,
   GripVertical, Plus, ShieldCheck, EyeOff, Eraser, MousePointer,
-  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool, Tag, RotateCw
+  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool, Tag, RotateCw, Search
 } from 'lucide-react';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
@@ -11,6 +11,7 @@ import type {
 import TextFormatToolbar from './TextFormatToolbar';
 import SignatureModal from './SignatureModal';
 import StampModal from './StampModal';
+import FindReplaceBar, { SearchMatch } from './FindReplaceBar';
 
 interface PDFEditorProps {
   state: PDFEditorState;
@@ -31,6 +32,10 @@ interface PDFEditorProps {
   updateStamp: (id: string, partial: Partial<PDFStampItem>) => void;
   deleteStamp: (id: string) => void;
   setActiveStamp: (id: string | null) => void;
+  searchDocumentMatches: (query: string, matchCase: boolean, wholeWord: boolean) => Promise<{ itemId: string; pageNumber: number; originalText: string; matchedText: string }[]>;
+  replaceSingleMatch: (itemId: string, pageNumber: number, replaceWith: string, query: string, matchCase: boolean, wholeWord: boolean) => void;
+  replaceAllMatches: (query: string, replaceWith: string, matchCase: boolean, wholeWord: boolean) => Promise<number>;
+  redactAllMatches: (query: string, matchCase: boolean, wholeWord: boolean) => Promise<number>;
   setActiveRedaction: (id: string | null) => void;
   setActiveTool: (tool: EditorTool) => void;
   setExportMode: (mode: ExportMode) => void;
@@ -56,6 +61,7 @@ export default function PDFEditor({
   addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
   addSignature, updateSignature, deleteSignature, setActiveSignature,
   addStamp, updateStamp, deleteStamp, setActiveStamp,
+  searchDocumentMatches, replaceSingleMatch, replaceAllMatches, redactAllMatches,
   setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
   setVerifyOnExport, setVerificationReport, runStandaloneVerification,
   undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
@@ -67,6 +73,11 @@ export default function PDFEditor({
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [showStampModal, setShowStampModal] = useState(false);
+
+  // Find & Replace State
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [matches, setMatches] = useState<SearchMatch[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(-1);
 
   // Dragging State for Text
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -119,7 +130,7 @@ export default function PDFEditor({
     setEditValues(vals);
   }, [state.textItems]);
 
-  // Keyboard Shortcuts for Undo/Redo/Delete/Backspace/Escape
+  // Keyboard Shortcuts for Undo/Redo/Delete/Backspace/Escape/Ctrl+F
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -146,6 +157,9 @@ export default function PDFEditor({
               e.preventDefault();
               redo();
             }
+          } else if (e.key === 'f' || e.key === 'F') {
+            e.preventDefault();
+            setShowFindReplace(true);
           }
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -165,6 +179,11 @@ export default function PDFEditor({
           }
         }
       } else if (e.key === 'Escape') {
+        if (showFindReplace) {
+          setShowFindReplace(false);
+          setMatches([]);
+          setCurrentMatchIndex(-1);
+        }
         setActiveItem(null);
         setActiveRedaction(null);
         setActiveSignature(null);
@@ -178,7 +197,7 @@ export default function PDFEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, state.activeRedactionId, state.activeSignatureId, state.activeStampId, deleteRedactionBox, deleteSignature, deleteStamp, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
+  }, [undo, redo, state.activeRedactionId, state.activeSignatureId, state.activeStampId, showFindReplace, deleteRedactionBox, deleteSignature, deleteStamp, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
 
   // Handle Drag Move Action for text items
   const handleDragMouseDown = useCallback((id: string, itemX: number, itemY: number, e: React.MouseEvent) => {
@@ -602,6 +621,14 @@ export default function PDFEditor({
     updateStamp(id, { rotation: nextRotation });
   };
 
+  // Find & Replace Navigation Callback
+  const handleNavigateToMatch = useCallback((match: SearchMatch) => {
+    if (match.pageNumber !== state.currentPage) {
+      setCurrentPage(match.pageNumber);
+    }
+    setActiveItem(match.itemId);
+  }, [state.currentPage, setCurrentPage, setActiveItem]);
+
   const {
     totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId, activeStampId,
     activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
@@ -616,8 +643,8 @@ export default function PDFEditor({
   const allStampCount = Object.values(state.stamps).reduce((acc, list) => acc + list.length, 0);
 
   return (
-    <section id="editor" style={{ padding: '0 0 4rem' }}>
-      <div style={{ maxWidth: 1320, margin: '0 auto', padding: '0 1.5rem' }}>
+    <section id="editor" style={{ padding: '0 0 4rem', position: 'relative' }}>
+      <div style={{ maxWidth: 1320, margin: '0 auto', padding: '0 1.5rem', position: 'relative' }}>
 
         {/* Top Control Bar */}
         <div className="card-glass" style={{
@@ -699,6 +726,25 @@ export default function PDFEditor({
               title="Stamp Documents Online Free: Insert APPROVED, PAID, Checkmarks, or Logos"
             >
               <Tag size={13} color="#4ade80" /> Stamp / Image
+            </button>
+
+            <button
+              className="btn-secondary"
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: showFindReplace ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)',
+                borderColor: showFindReplace ? '#f59e0b' : 'rgba(255,255,255,0.1)',
+                color: showFindReplace ? '#fcd34d' : '#f0f0f0',
+                fontWeight: showFindReplace ? 700 : 500,
+              }}
+              onClick={() => setShowFindReplace(p => !p)}
+              title="Find & Replace Text Across Document (Ctrl + F)"
+            >
+              <Search size={13} color="#f59e0b" /> Find & Replace
             </button>
 
             <button
@@ -875,6 +921,7 @@ export default function PDFEditor({
             overflowX: 'auto',
             overflowY: 'auto',
             maxHeight: '75vh',
+            position: 'relative',
             cursor: activeTool === 'blackout' || activeTool === 'whiteout' ? 'crosshair' : 'default',
           }}
           onClick={() => {
@@ -886,6 +933,25 @@ export default function PDFEditor({
             }
           }}
         >
+          {/* Floating Find & Replace Toolbar */}
+          <FindReplaceBar
+            isOpen={showFindReplace}
+            onClose={() => {
+              setShowFindReplace(false);
+              setMatches([]);
+              setCurrentMatchIndex(-1);
+            }}
+            onSearch={searchDocumentMatches}
+            onReplaceCurrent={(match, repText) => replaceSingleMatch(match.itemId, match.pageNumber, repText, match.matchedText, false, false)}
+            onReplaceAll={replaceAllMatches}
+            onRedactAll={redactAllMatches}
+            onNavigateToMatch={handleNavigateToMatch}
+            currentMatchIndex={currentMatchIndex}
+            matches={matches}
+            setMatches={setMatches}
+            setCurrentMatchIndex={setCurrentMatchIndex}
+          />
+
           {isLoading && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '5rem', gap: '1rem', color: 'rgba(240,240,240,0.5)' }}>
               <span style={{ width: 28, height: 28, border: '3px solid rgba(77,107,250,0.3)', borderTopColor: '#4d6bfa', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
@@ -981,7 +1047,7 @@ export default function PDFEditor({
                         touchAction: 'none',
                       }}
                     >
-                      {/* Delete Redaction Button (Works for both Blackout and Whiteout) */}
+                      {/* Delete Redaction Button */}
                       {isSelected && (
                         <button
                           onMouseDown={e => {
@@ -1011,13 +1077,13 @@ export default function PDFEditor({
                             boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
                             zIndex: 30,
                           }}
-                          title={`Delete ${box.type === 'blackout' ? 'Blackout' : 'Whiteout'} Redaction (or press Delete)`}
+                          title={`Delete ${box.type === 'blackout' ? 'Blackout' : 'Whiteout'} Redaction`}
                         >
                           <Trash2 size={12} />
                         </button>
                       )}
 
-                      {/* Resize Corner Handle for Redaction Box */}
+                      {/* Resize Corner Handle */}
                       {isSelected && (
                         <div
                           onMouseDown={e => {
@@ -1331,6 +1397,10 @@ export default function PDFEditor({
                   const itemX = isCurrentDragging && dragPosition ? dragPosition.x : item.x;
                   const itemY = isCurrentDragging && dragPosition ? dragPosition.y : item.y;
 
+                  // Find & Replace match highlight check
+                  const isMatch = matches.some(m => m.itemId === item.id && m.pageNumber === currentPage);
+                  const isCurrentMatch = matches[currentMatchIndex]?.itemId === item.id && matches[currentMatchIndex]?.pageNumber === currentPage;
+
                   return (
                     <div
                       key={item.id}
@@ -1344,10 +1414,21 @@ export default function PDFEditor({
                         height: item.height,
                         fontSize: item.fontSize + item.format.fontSizeDelta,
                         lineHeight: 1,
-                        background: isActive ? '#ffffff' : (hasChanges && !item.isAdded ? '#ffffff' : undefined),
+                        background: isActive
+                          ? '#ffffff'
+                          : isCurrentMatch
+                          ? 'rgba(254,240,138,0.5)'
+                          : isMatch
+                          ? 'rgba(254,240,138,0.25)'
+                          : (hasChanges && !item.isAdded ? '#ffffff' : undefined),
+                        boxShadow: isCurrentMatch
+                          ? '0 0 0 2px #f59e0b, 0 0 12px rgba(245,158,11,0.6)'
+                          : isMatch
+                          ? '0 0 0 1px #eab308'
+                          : undefined,
                         borderColor: !isActive && hasChanges ? 'rgba(77, 107, 250, 0.5)' : undefined,
                         overflow: 'visible',
-                        zIndex: hasChanges || isActive ? 10 : 1,
+                        zIndex: isCurrentMatch ? 12 : hasChanges || isActive ? 10 : 1,
                       }}
                       onClick={e => handleItemClick(item.id, e)}
                       title={hasChanges ? `Edited — click to re-edit` : 'Click to edit'}

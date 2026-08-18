@@ -22,6 +22,7 @@ function MainApp() {
     addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
     addSignature, updateSignature, deleteSignature, setActiveSignature,
     addStamp, updateStamp, deleteStamp, setActiveStamp,
+    searchDocumentMatches, replaceSingleMatch, replaceAllMatches, redactAllMatches,
     setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
     setVerifyOnExport, setVerificationReport, runStandaloneVerification,
     undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
@@ -93,6 +94,10 @@ function MainApp() {
             updateStamp={updateStamp}
             deleteStamp={deleteStamp}
             setActiveStamp={setActiveStamp}
+            searchDocumentMatches={searchDocumentMatches}
+            replaceSingleMatch={replaceSingleMatch}
+            replaceAllMatches={replaceAllMatches}
+            redactAllMatches={redactAllMatches}
             setActiveRedaction={setActiveRedaction}
             setActiveTool={setActiveTool}
             setExportMode={setExportMode}
