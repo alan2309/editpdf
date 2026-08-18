@@ -48,7 +48,7 @@ function ActiveTextOverlayEditor({
     autoResize();
   }, [currentVal, item.fontSize, item.format.fontSizeDelta, item.format.fontFamily, autoResize]);
 
-  // Initial focus and caret placement without horizontal jump
+  // Initial focus and caret placement strictly ONCE on mount
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -58,11 +58,13 @@ function ActiveTextOverlayEditor({
       textarea.scrollLeft = 0;
       textarea.scrollTop = 0;
 
-      const caretPos = Math.max(0, Math.min(currentVal.length, initialCaretIndex));
-      try {
-        textarea.setSelectionRange(caretPos, caretPos);
-      } catch {
-        // Fallback for environments without selection range support
+      if (typeof initialCaretIndex === 'number' && initialCaretIndex >= 0) {
+        const caretPos = Math.max(0, Math.min(currentVal.length, initialCaretIndex));
+        try {
+          textarea.setSelectionRange(caretPos, caretPos);
+        } catch {
+          // Fallback for environments without selection range support
+        }
       }
 
       try {
@@ -73,7 +75,8 @@ function ActiveTextOverlayEditor({
     });
 
     return () => cancelAnimationFrame(rId);
-  }, [initialCaretIndex, currentVal.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on initial activation mount
 
   return (
     <>
@@ -136,6 +139,13 @@ function ActiveTextOverlayEditor({
           width: '100%',
           maxWidth: `${availableWidth}px`,
           minWidth: `${Math.min(item.width, availableWidth)}px`,
+        }}
+        onClick={e => {
+          // Prevent click from bubbling to parent container so the native caret remains where user clicked
+          e.stopPropagation();
+        }}
+        onPointerDown={e => {
+          e.stopPropagation();
         }}
         onChange={e => {
           onItemTextChange(item.id, e.target.value);
@@ -635,15 +645,47 @@ export default function PDFPage({
 
   // Handle Text Click with Character Index Calculation
   const handleTextItemClick = useCallback((id: string, e: React.MouseEvent) => {
-    const targetEl = e.currentTarget as HTMLElement;
-    const rect = targetEl.getBoundingClientRect();
-    const clickOffsetX = Math.max(0, e.clientX - rect.left);
-    const charRatio = Math.max(0, Math.min(1, clickOffsetX / (rect.width || 1)));
-    const itemVal = editValues[id] ?? textItems.find(it => it.id === id)?.editedText ?? '';
-    const estimatedIndex = Math.round(charRatio * itemVal.length);
-    setInitialCaretPos(estimatedIndex);
+    // If the clicked item is already active, don't interfere with the user's cursor
+    if (activeItemId === id) {
+      return;
+    }
+
+    let clickedOffset: number | null = null;
+
+    // Use native browser caret offset detection from click point if supported
+    if (typeof (document as any).caretPositionFromPoint === 'function') {
+      try {
+        const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+        if (pos && typeof pos.offset === 'number') {
+          clickedOffset = pos.offset;
+        }
+      } catch {
+        // Fallback below
+      }
+    } else if (typeof (document as any).caretRangeFromPoint === 'function') {
+      try {
+        const range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
+        if (range && typeof range.startOffset === 'number') {
+          clickedOffset = range.startOffset;
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    // Fallback: estimate proportional click position
+    if (clickedOffset === null || isNaN(clickedOffset)) {
+      const targetEl = e.currentTarget as HTMLElement;
+      const rect = targetEl.getBoundingClientRect();
+      const clickOffsetX = Math.max(0, e.clientX - rect.left);
+      const charRatio = Math.max(0, Math.min(1, clickOffsetX / (rect.width || 1)));
+      const itemVal = editValues[id] ?? textItems.find(it => it.id === id)?.editedText ?? '';
+      clickedOffset = Math.round(charRatio * itemVal.length);
+    }
+
+    setInitialCaretPos(clickedOffset);
     onItemClick(id, e);
-  }, [editValues, textItems, onItemClick]);
+  }, [activeItemId, editValues, textItems, onItemClick]);
 
   // ── Pointer Drawing for Redactions (Blackout & Whiteout) ────────────────────
   const handlePagePointerDown = (e: React.PointerEvent) => {
@@ -1245,6 +1287,8 @@ export default function PDFPage({
               <span
                 style={{
                   display: 'inline-block',
+                  padding: '1px 3px',
+                  boxSizing: 'border-box',
                   fontSize: item.fontSize + item.format.fontSizeDelta,
                   fontWeight: item.format.bold ? 700 : 400,
                   fontStyle: item.format.italic ? 'italic' : 'normal',
