@@ -40,12 +40,12 @@ export async function verifyPdf(
 
   // 2. Check for encryption dictionary in raw byte stream
   const decoder = new TextDecoder('latin1');
-  const rawText = decoder.decode(bytes.slice(Math.max(0, bytes.length - 4096)));
-  const isEncrypted = rawText.includes('/Encrypt') || decoder.decode(bytes.slice(0, 2048)).includes('/Encrypt');
+  const rawText = decoder.decode(bytes.slice(0, Math.min(bytes.length, 8192))) + decoder.decode(bytes.slice(Math.max(0, bytes.length - 8192)));
+  let isEncrypted = rawText.includes('/Encrypt');
 
   let pageCount = 0;
 
-  // 3. Attempt structural parse with pdf-lib
+  // 3. Attempt structural parse with pdf-lib or QPDF
   try {
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
     pageCount = doc.getPageCount();
@@ -56,7 +56,6 @@ export async function verifyPdf(
       errors.push(`Page count mismatch: expected ${expectedPages}, got ${pageCount}.`);
     }
   } catch (err: any) {
-    // If standard encrypted, loading without password is expected to fail or require decryption
     if (!isEncrypted) {
       errors.push(`Failed to parse PDF document structure: ${err.message || 'Corrupt PDF.'}`);
     }

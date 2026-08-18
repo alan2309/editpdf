@@ -106,7 +106,7 @@ describe('pdf operations', () => {
     expect(result.blob.size).toBeGreaterThan(0);
   });
 
-  it('applies genuine standard PDF encryption with /Encrypt dictionary', async () => {
+  it('applies genuine standard PDF encryption with /Encrypt dictionary and decrypts with password', async () => {
     const file = await createSamplePdfFile(2, 'secret.pdf');
     const result = await protectPdf(file, {
       password: 'mypassword123',
@@ -121,8 +121,21 @@ describe('pdf operations', () => {
     expect(result.blob.size).toBeGreaterThan(0);
 
     const buffer = await result.blob.arrayBuffer();
-    const text = new TextDecoder('latin1').decode(buffer);
-    expect(text.includes('/Encrypt')).toBe(true);
-    expect(text.includes('/Filter /Standard')).toBe(true);
+    const bytes = new Uint8Array(buffer);
+
+    // Verify it is genuinely encrypted
+    const { createPdfToolkit } = await import('pdfstudio');
+    const toolkit = await createPdfToolkit();
+    expect(await toolkit.isEncrypted(bytes)).toBe(true);
+
+    // Verify unlocking with correct password recovers original document
+    const decryptedBytes = await toolkit.unlock(bytes, { password: 'mypassword123' });
+    const decryptedDoc = await PDFDocument.load(decryptedBytes);
+    expect(decryptedDoc.getPageCount()).toBe(2);
+
+    // Verify wrong password rejects
+    await expect(
+      toolkit.unlock(bytes, { password: 'WrongPassword' })
+    ).rejects.toThrow();
   });
 });
