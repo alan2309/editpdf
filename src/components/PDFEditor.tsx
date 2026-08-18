@@ -11,7 +11,7 @@ import type {
 import TextFormatToolbar from './TextFormatToolbar';
 import SignatureModal from './SignatureModal';
 import StampModal from './StampModal';
-import FindReplaceBar, { SearchMatch } from './FindReplaceBar';
+import FindReplaceBar, { type SearchMatch } from './FindReplaceBar';
 
 interface PDFEditorProps {
   state: PDFEditorState;
