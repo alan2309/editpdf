@@ -10,6 +10,24 @@ import ChromePdfEditorPage from './pages/ChromePdfEditorPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import AboutPage from './pages/AboutPage';
 import TermsPage from './pages/TermsPage';
+
+// PDF Tools Pages
+import MergePdfPage from './pages/tools/MergePdfPage';
+import SplitPdfPage from './pages/tools/SplitPdfPage';
+import ExtractPagesPage from './pages/tools/ExtractPagesPage';
+import DeletePagesPage from './pages/tools/DeletePagesPage';
+import ReorderPagesPage from './pages/tools/ReorderPagesPage';
+import RotatePdfPage from './pages/tools/RotatePdfPage';
+import CompressPdfPage from './pages/tools/CompressPdfPage';
+import PdfToJpgPage from './pages/tools/PdfToJpgPage';
+import PdfToPngPage from './pages/tools/PdfToPngPage';
+import JpgToPdfPage from './pages/tools/JpgToPdfPage';
+import PngToPdfPage from './pages/tools/PngToPdfPage';
+import WatermarkPdfPage from './pages/tools/WatermarkPdfPage';
+import PageNumbersPage from './pages/tools/PageNumbersPage';
+import FlattenPdfPage from './pages/tools/FlattenPdfPage';
+import ProtectPdfPage from './pages/tools/ProtectPdfPage';
+
 import { RouterProvider, useRouter } from './context/RouterContext';
 import { usePDFEditor } from './hooks/usePDFEditor';
 
@@ -50,6 +68,39 @@ function MainApp() {
     const normalized = currentPath === '' || currentPath === '/' ? '/' : currentPath.replace(/\/$/, '');
 
     switch (normalized) {
+      // PDF Tool Routes
+      case '/merge-pdf':
+        return <MergePdfPage />;
+      case '/split-pdf':
+        return <SplitPdfPage />;
+      case '/extract-pdf-pages':
+        return <ExtractPagesPage />;
+      case '/delete-pdf-pages':
+        return <DeletePagesPage />;
+      case '/reorder-pdf-pages':
+        return <ReorderPagesPage />;
+      case '/rotate-pdf':
+        return <RotatePdfPage />;
+      case '/compress-pdf':
+        return <CompressPdfPage />;
+      case '/pdf-to-jpg':
+        return <PdfToJpgPage />;
+      case '/pdf-to-png':
+        return <PdfToPngPage />;
+      case '/jpg-to-pdf':
+        return <JpgToPdfPage />;
+      case '/png-to-pdf':
+        return <PngToPdfPage />;
+      case '/watermark-pdf':
+        return <WatermarkPdfPage />;
+      case '/pdf-page-numbers':
+        return <PageNumbersPage />;
+      case '/flatten-pdf':
+        return <FlattenPdfPage />;
+      case '/protect-pdf':
+        return <ProtectPdfPage />;
+
+      // Use Case Landing Pages
       case '/secure-pdf-editor':
         return <SecurePdfEditorPage onFileSelected={handleFileSelected} />;
       case '/edit-bank-statement-pdf':
@@ -75,7 +126,7 @@ function MainApp() {
       <Navbar />
 
       <main style={{ flex: 1 }}>
-        {/* Active Editor — shown after PDF is loaded on ANY page */}
+        {/* Active Editor — shown after PDF is loaded on ANY editor page */}
         {pdfLoaded && state.totalPages > 0 ? (
           <PDFEditor
             state={state}
@@ -122,32 +173,6 @@ function MainApp() {
           />
         ) : (
           renderCurrentPage()
-        )}
-
-        {/* Loading state */}
-        {pdfLoaded && state.isLoading && (
-          <div style={{ textAlign: 'center', padding: '5rem 1.5rem', color: 'rgba(240,240,240,0.5)' }}>
-            <div style={{
-              width: 40, height: 40, border: '3px solid rgba(77,107,250,0.3)', borderTopColor: '#4d6bfa',
-              borderRadius: '50%', margin: '0 auto 1rem', animation: 'spin-slow 0.8s linear infinite',
-            }} />
-            <p>Loading your PDF…</p>
-          </div>
-        )}
-
-        {/* Error state */}
-        {pdfLoaded && state.error && (
-          <div style={{ maxWidth: 600, margin: '4rem auto', padding: '0 1.5rem' }}>
-            <div style={{
-              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: '1rem', padding: '1.5rem', textAlign: 'center',
-            }}>
-              <p style={{ color: '#fca5a5', marginBottom: '1rem' }}>{state.error}</p>
-              <button className="btn-secondary" style={{ padding: '0.6rem 1.5rem', fontSize: '0.875rem' }} onClick={handleReset}>
-                Try Again
-              </button>
-            </div>
-          </div>
         )}
       </main>
 
