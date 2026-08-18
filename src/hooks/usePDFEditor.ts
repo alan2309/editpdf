@@ -371,13 +371,17 @@ export function usePDFEditor() {
         finalItems = items.map(extractedItem => {
           const match = existing.find(ex => ex.id === extractedItem.id);
           if (match) {
+            const hasMoved = Math.abs(match.x - match.originalX) > 0.5 || Math.abs(match.y - match.originalY) > 0.5;
+            const deltaX = match.x - match.originalX;
+            const deltaY = match.y - match.originalY;
+
             return {
               ...extractedItem,
               editedText: match.editedText,
               format: { ...match.format },
               isDeleted: match.isDeleted,
-              x: match.x,
-              y: match.y,
+              x: hasMoved ? extractedItem.originalX + deltaX : extractedItem.originalX,
+              y: hasMoved ? extractedItem.originalY + deltaY : extractedItem.originalY,
             };
           }
           return extractedItem;
@@ -847,7 +851,91 @@ export function usePDFEditor() {
   const setVerifyOnExport = useCallback((verify: boolean) => setState(s => ({ ...s, verifyOnExport: verify })), []);
   const setVerificationReport = useCallback((report: VerificationReport | null) => setState(s => ({ ...s, verificationReport: report })), []);
   const setCurrentPage = useCallback((page: number) => setState(s => ({ ...s, currentPage: page })), []);
-  const setScale = useCallback((scale: number) => setState(s => ({ ...s, scale })), []);
+  const setScale = useCallback((newScale: number) => {
+    setState(s => {
+      const oldScale = s.scale;
+      if (oldScale === newScale || oldScale <= 0) return { ...s, scale: newScale };
+      const factor = newScale / oldScale;
+
+      // Rescale all pageItems (including added and repositioned items)
+      const newPageItems: Record<number, PDFTextItem[]> = {};
+      for (const [pageNumStr, items] of Object.entries(s.pageItems)) {
+        const pageNum = Number(pageNumStr);
+        newPageItems[pageNum] = items.map(item => ({
+          ...item,
+          x: item.x * factor,
+          y: item.y * factor,
+          originalX: item.originalX * factor,
+          originalY: item.originalY * factor,
+          width: item.width * factor,
+          height: item.height * factor,
+          fontSize: item.fontSize * factor,
+          format: { ...item.format },
+        }));
+      }
+
+      // Rescale redaction boxes
+      const newRedactions: Record<number, RedactionBox[]> = {};
+      for (const [pageNumStr, boxes] of Object.entries(s.redactions)) {
+        const pageNum = Number(pageNumStr);
+        newRedactions[pageNum] = boxes.map(box => ({
+          ...box,
+          x: box.x * factor,
+          y: box.y * factor,
+          width: box.width * factor,
+          height: box.height * factor,
+        }));
+      }
+
+      // Rescale digital signatures
+      const newSignatures: Record<number, PDFSignatureItem[]> = {};
+      for (const [pageNumStr, sigs] of Object.entries(s.signatures)) {
+        const pageNum = Number(pageNumStr);
+        newSignatures[pageNum] = sigs.map(sig => ({
+          ...sig,
+          x: sig.x * factor,
+          y: sig.y * factor,
+          width: sig.width * factor,
+          height: sig.height * factor,
+        }));
+      }
+
+      // Rescale stamps & images
+      const newStamps: Record<number, PDFStampItem[]> = {};
+      for (const [pageNumStr, stampList] of Object.entries(s.stamps)) {
+        const pageNum = Number(pageNumStr);
+        newStamps[pageNum] = stampList.map(st => ({
+          ...st,
+          x: st.x * factor,
+          y: st.y * factor,
+          width: st.width * factor,
+          height: st.height * factor,
+        }));
+      }
+
+      const newCurrentTextItems = newPageItems[s.currentPage] || s.textItems.map(item => ({
+        ...item,
+        x: item.x * factor,
+        y: item.y * factor,
+        originalX: item.originalX * factor,
+        originalY: item.originalY * factor,
+        width: item.width * factor,
+        height: item.height * factor,
+        fontSize: item.fontSize * factor,
+        format: { ...item.format },
+      }));
+
+      return {
+        ...s,
+        scale: newScale,
+        pageItems: newPageItems,
+        textItems: newCurrentTextItems,
+        redactions: newRedactions,
+        signatures: newSignatures,
+        stamps: newStamps,
+      };
+    });
+  }, []);
 
   // ── Core PDF Binary Generation Helper ───────────────────────────────────────
   const generatePDFBytes = useCallback(async (chosenMode: ExportMode): Promise<Uint8Array> => {
