@@ -240,6 +240,55 @@ export function usePDFEditor() {
     }
   }, []);
 
+  // ── Standalone Page Text Extraction Helper ─────────────────────────────────
+  const extractPageItems = useCallback(async (pageNum: number): Promise<PDFTextItem[]> => {
+    if (state.pageItems[pageNum] && state.pageItems[pageNum].length > 0) {
+      return state.pageItems[pageNum];
+    }
+    const pdfDoc = pdfDocRef.current;
+    if (!pdfDoc) return [];
+
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: state.scale });
+    const textContent = await page.getTextContent();
+    const items: PDFTextItem[] = [];
+
+    for (const item of textContent.items) {
+      if (!('str' in item) || !item.str.trim()) continue;
+
+      const tx = item.transform as number[];
+      const [, , , scaleY, x, y] = tx;
+      const fontSize = Math.abs(scaleY);
+
+      const pt = viewport.convertToViewportPoint(x, y);
+      const ptEnd = viewport.convertToViewportPoint(x + item.width, y + fontSize);
+
+      const cx = pt[0];
+      const cy = Math.min(pt[1], ptEnd[1]);
+      const cw = Math.abs(ptEnd[0] - pt[0]);
+      const ch = Math.abs(ptEnd[1] - pt[1]) || fontSize * state.scale;
+
+      items.push({
+        id: `p${pageNum}-${items.length}`,
+        pageIndex: pageNum - 1,
+        originalText: item.str,
+        editedText: item.str,
+        x: cx,
+        y: cy,
+        originalX: cx,
+        originalY: cy,
+        width: Math.max(cw, 20),
+        height: Math.max(ch, 10),
+        fontSize: fontSize * state.scale,
+        transform: tx,
+        fontName: (item as { fontName?: string }).fontName ?? '',
+        format: { ...DEFAULT_FORMAT },
+      });
+    }
+
+    return items;
+  }, [state.pageItems, state.scale]);
+
   // ── Render Page ───────────────────────────────────────────────────────────
   const renderPage = useCallback(async (
     canvas: HTMLCanvasElement,
@@ -619,6 +668,174 @@ export function usePDFEditor() {
       };
     });
   }, [pushToHistory]);
+
+  // ── Find & Replace Multi-Page Engine ────────────────────────────────────────
+  const searchDocumentMatches = useCallback(async (
+    query: string,
+    matchCase: boolean,
+    wholeWord: boolean
+  ): Promise<{ itemId: string; pageNumber: number; originalText: string; matchedText: string }[]> => {
+    if (!query.trim() || state.totalPages === 0) return [];
+
+    const results: { itemId: string; pageNumber: number; originalText: string; matchedText: string }[] = [];
+    const flags = matchCase ? 'g' : 'gi';
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+
+    for (let p = 1; p <= state.totalPages; p++) {
+      const items = state.pageItems[p] || await extractPageItems(p);
+      for (const it of items) {
+        if (it.isDeleted) continue;
+        regex.lastIndex = 0;
+        if (regex.test(it.editedText)) {
+          results.push({
+            itemId: it.id,
+            pageNumber: p,
+            originalText: it.originalText,
+            matchedText: it.editedText,
+          });
+        }
+      }
+    }
+
+    return results;
+  }, [state.totalPages, state.pageItems, extractPageItems]);
+
+  const replaceSingleMatch = useCallback((
+    itemId: string,
+    pageNumber: number,
+    replaceWith: string,
+    query: string,
+    matchCase: boolean,
+    wholeWord: boolean
+  ) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+      const targetPageItems = s.pageItems[pageNumber] || [];
+      const flags = matchCase ? 'g' : 'gi';
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+
+      const updated = targetPageItems.map(item => {
+        if (item.id === itemId) {
+          return {
+            ...item,
+            editedText: item.editedText.replace(regex, replaceWith),
+          };
+        }
+        return item;
+      });
+
+      const newPageItems = { ...s.pageItems, [pageNumber]: updated };
+      const newTextItems = s.currentPage === pageNumber ? updated : s.textItems;
+
+      return {
+        ...s,
+        isDirty: true,
+        pageItems: newPageItems,
+        textItems: newTextItems,
+      };
+    });
+  }, [pushToHistory]);
+
+  const replaceAllMatches = useCallback(async (
+    query: string,
+    replaceWith: string,
+    matchCase: boolean,
+    wholeWord: boolean
+  ): Promise<number> => {
+    if (!query.trim() || state.totalPages === 0) return 0;
+
+    const flags = matchCase ? 'g' : 'gi';
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+
+    let totalReplaced = 0;
+    const newPageItems: Record<number, PDFTextItem[]> = {};
+
+    for (let p = 1; p <= state.totalPages; p++) {
+      const items = state.pageItems[p] || await extractPageItems(p);
+      const updated = items.map(it => {
+        if (it.isDeleted) return it;
+        regex.lastIndex = 0;
+        if (regex.test(it.editedText)) {
+          totalReplaced++;
+          return {
+            ...it,
+            editedText: it.editedText.replace(regex, replaceWith),
+          };
+        }
+        return it;
+      });
+      newPageItems[p] = updated;
+    }
+
+    if (totalReplaced > 0) {
+      setState(s => {
+        pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+        return {
+          ...s,
+          isDirty: true,
+          pageItems: newPageItems,
+          textItems: newPageItems[s.currentPage] || s.textItems,
+        };
+      });
+    }
+
+    return totalReplaced;
+  }, [state.totalPages, state.pageItems, extractPageItems, pushToHistory]);
+
+  const redactAllMatches = useCallback(async (
+    query: string,
+    matchCase: boolean,
+    wholeWord: boolean
+  ): Promise<number> => {
+    if (!query.trim() || state.totalPages === 0) return 0;
+
+    const flags = matchCase ? 'g' : 'gi';
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+
+    let totalRedacted = 0;
+    const newRedactions: Record<number, RedactionBox[]> = {};
+
+    for (let p = 1; p <= state.totalPages; p++) {
+      const existingBoxes = state.redactions[p] || [];
+      const addedBoxes: RedactionBox[] = [];
+      const items = state.pageItems[p] || await extractPageItems(p);
+
+      for (const it of items) {
+        if (it.isDeleted) continue;
+        regex.lastIndex = 0;
+        if (regex.test(it.editedText)) {
+          totalRedacted++;
+          addedBoxes.push({
+            id: `redact-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            pageIndex: p,
+            x: it.x - 2,
+            y: it.y - 2,
+            width: it.width + 4,
+            height: it.height + 4,
+            type: 'blackout',
+          });
+        }
+      }
+      newRedactions[p] = [...existingBoxes, ...addedBoxes];
+    }
+
+    if (totalRedacted > 0) {
+      setState(s => {
+        pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+        return {
+          ...s,
+          isDirty: true,
+          redactions: newRedactions,
+        };
+      });
+    }
+
+    return totalRedacted;
+  }, [state.totalPages, state.pageItems, state.redactions, extractPageItems, pushToHistory]);
 
   const setActiveItem = useCallback((id: string | null) => setState(s => ({ ...s, activeItemId: id })), []);
   const setActiveRedaction = useCallback((id: string | null) => setState(s => ({ ...s, activeRedactionId: id })), []);
@@ -1131,6 +1348,10 @@ export function usePDFEditor() {
     updateStamp,
     deleteStamp,
     setActiveStamp,
+    searchDocumentMatches,
+    replaceSingleMatch,
+    replaceAllMatches,
+    redactAllMatches,
     setActiveRedaction,
     setActiveTool,
     setExportMode,
