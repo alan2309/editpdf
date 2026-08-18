@@ -53,7 +53,7 @@ const MAX_SCALE = 3;
 
 export default function PDFEditor({
   state, renderPage, updateText, updateFormat, updatePosition, deleteItem,
-  addTextField, addRedactionBox, updateRedactionBox: _updateRedactionBox, deleteRedactionBox,
+  addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
   addSignature, updateSignature, deleteSignature, setActiveSignature,
   addStamp, updateStamp, deleteStamp, setActiveStamp,
   setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
@@ -72,6 +72,15 @@ export default function PDFEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  // Dragging / Resizing State for Redaction Boxes (Blackout & Whiteout)
+  const [draggingRedactId, setDraggingRedactId] = useState<string | null>(null);
+  const [dragRedactPosition, setDragRedactPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragRedactStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  const [resizingRedactId, setResizingRedactId] = useState<string | null>(null);
+  const [redactDimensions, setRedactDimensions] = useState<{ w: number; h: number } | null>(null);
+  const resizeRedactStartRef = useRef<{ mouseX: number; mouseY: number; startW: number; startH: number } | null>(null);
 
   // Dragging / Resizing State for Signatures
   const [draggingSigId, setDraggingSigId] = useState<string | null>(null);
@@ -110,9 +119,16 @@ export default function PDFEditor({
     setEditValues(vals);
   }, [state.textItems]);
 
-  // Keyboard Shortcuts for Undo/Redo/Delete/Escape
+  // Keyboard Shortcuts for Undo/Redo/Delete/Backspace/Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isEditingInput = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.classList.contains('text-overlay-input')
+      );
+
       if (e.ctrlKey || e.metaKey) {
         if (e.shiftKey) {
           if (e.key === 'z' || e.key === 'Z') {
@@ -121,19 +137,31 @@ export default function PDFEditor({
           }
         } else {
           if (e.key === 'z' || e.key === 'Z') {
-            const activeEl = document.activeElement;
-            const isEditingInput = activeEl && activeEl.classList.contains('text-overlay-input');
             if (!isEditingInput) {
               e.preventDefault();
               undo();
             }
           } else if (e.key === 'y' || e.key === 'Y') {
-            const activeEl = document.activeElement;
-            const isEditingInput = activeEl && activeEl.classList.contains('text-overlay-input');
             if (!isEditingInput) {
               e.preventDefault();
               redo();
             }
+          }
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!isEditingInput) {
+          if (state.activeRedactionId) {
+            e.preventDefault();
+            deleteRedactionBox(state.activeRedactionId);
+            setActiveRedaction(null);
+          } else if (state.activeSignatureId) {
+            e.preventDefault();
+            deleteSignature(state.activeSignatureId);
+            setActiveSignature(null);
+          } else if (state.activeStampId) {
+            e.preventDefault();
+            deleteStamp(state.activeStampId);
+            setActiveStamp(null);
           }
         }
       } else if (e.key === 'Escape') {
@@ -150,7 +178,7 @@ export default function PDFEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
+  }, [undo, redo, state.activeRedactionId, state.activeSignatureId, state.activeStampId, deleteRedactionBox, deleteSignature, deleteStamp, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
 
   // Handle Drag Move Action for text items
   const handleDragMouseDown = useCallback((id: string, itemX: number, itemY: number, e: React.MouseEvent) => {
@@ -165,6 +193,39 @@ export default function PDFEditor({
       startY: itemY,
     };
   }, []);
+
+  // Handle Drag Move Action for Redaction Boxes (Blackout & Whiteout)
+  const handleRedactionDragStart = useCallback((id: string, boxX: number, boxY: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveRedaction(id);
+    setActiveItem(null);
+    setActiveSignature(null);
+    setActiveStamp(null);
+    setDraggingRedactId(id);
+    setDragRedactPosition({ x: boxX, y: boxY });
+    dragRedactStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startX: boxX,
+      startY: boxY,
+    };
+  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
+
+  // Handle Resize Action for Redaction Boxes (Blackout & Whiteout)
+  const handleRedactionResizeStart = useCallback((id: string, w: number, h: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveRedaction(id);
+    setResizingRedactId(id);
+    setRedactDimensions({ w, h });
+    resizeRedactStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startW: w,
+      startH: h,
+    };
+  }, [setActiveRedaction]);
 
   // Handle Drag Move Action for signature stamps
   const handleSignatureDragStart = useCallback((id: string, sigX: number, sigY: number, e: React.MouseEvent) => {
@@ -254,7 +315,31 @@ export default function PDFEditor({
         }
       }
 
-      // 2. Signature dragging
+      // 2. Redaction box dragging
+      if (draggingRedactId && dragRedactStartRef.current) {
+        const start = dragRedactStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const deltaY = e.clientY - start.mouseY;
+        const currentRedacts = state.redactions[state.currentPage] || [];
+        const box = currentRedacts.find(b => b.id === draggingRedactId);
+        if (box) {
+          const newX = Math.max(0, Math.min(canvasWidth - box.width, start.startX + deltaX));
+          const newY = Math.max(0, Math.min(canvasHeight - box.height, start.startY + deltaY));
+          setDragRedactPosition({ x: newX, y: newY });
+        }
+      }
+
+      // 3. Redaction box resizing
+      if (resizingRedactId && resizeRedactStartRef.current) {
+        const start = resizeRedactStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const deltaY = e.clientY - start.mouseY;
+        const newW = Math.max(10, Math.min(canvasWidth, start.startW + deltaX));
+        const newH = Math.max(8, Math.min(canvasHeight, start.startH + deltaY));
+        setRedactDimensions({ w: newW, h: newH });
+      }
+
+      // 4. Signature dragging
       if (draggingSigId && dragSigStartRef.current) {
         const start = dragSigStartRef.current;
         const deltaX = e.clientX - start.mouseX;
@@ -268,7 +353,7 @@ export default function PDFEditor({
         }
       }
 
-      // 3. Signature resizing
+      // 5. Signature resizing
       if (resizingSigId && resizeSigStartRef.current) {
         const start = resizeSigStartRef.current;
         const deltaX = e.clientX - start.mouseX;
@@ -277,7 +362,7 @@ export default function PDFEditor({
         setSigDimensions({ w: newW, h: newH });
       }
 
-      // 4. Stamp dragging
+      // 6. Stamp dragging
       if (draggingStampId && dragStampStartRef.current) {
         const start = dragStampStartRef.current;
         const deltaX = e.clientX - start.mouseX;
@@ -291,7 +376,7 @@ export default function PDFEditor({
         }
       }
 
-      // 5. Stamp resizing
+      // 7. Stamp resizing
       if (resizingStampId && resizeStampStartRef.current) {
         const start = resizeStampStartRef.current;
         const deltaX = e.clientX - start.mouseX;
@@ -314,7 +399,27 @@ export default function PDFEditor({
         dragStartRef.current = null;
       }
 
-      // 2. Signature drop
+      // 2. Redaction box drop
+      if (draggingRedactId && dragRedactStartRef.current && dragRedactPosition) {
+        const start = dragRedactStartRef.current;
+        const hasMoved = Math.abs(dragRedactPosition.x - start.startX) > 0.5 || Math.abs(dragRedactPosition.y - start.startY) > 0.5;
+        if (hasMoved) {
+          updateRedactionBox(draggingRedactId, { x: dragRedactPosition.x, y: dragRedactPosition.y });
+        }
+        setDraggingRedactId(null);
+        setDragRedactPosition(null);
+        dragRedactStartRef.current = null;
+      }
+
+      // 3. Redaction box resize end
+      if (resizingRedactId && resizeRedactStartRef.current && redactDimensions) {
+        updateRedactionBox(resizingRedactId, { width: redactDimensions.w, height: redactDimensions.h });
+        setResizingRedactId(null);
+        setRedactDimensions(null);
+        resizeRedactStartRef.current = null;
+      }
+
+      // 4. Signature drop
       if (draggingSigId && dragSigStartRef.current && dragSigPosition) {
         const start = dragSigStartRef.current;
         const hasMoved = Math.abs(dragSigPosition.x - start.startX) > 0.5 || Math.abs(dragSigPosition.y - start.startY) > 0.5;
@@ -326,7 +431,7 @@ export default function PDFEditor({
         dragSigStartRef.current = null;
       }
 
-      // 3. Signature resize end
+      // 5. Signature resize end
       if (resizingSigId && resizeSigStartRef.current && sigDimensions) {
         updateSignature(resizingSigId, { width: sigDimensions.w, height: sigDimensions.h });
         setResizingSigId(null);
@@ -334,7 +439,7 @@ export default function PDFEditor({
         resizeSigStartRef.current = null;
       }
 
-      // 4. Stamp drop
+      // 6. Stamp drop
       if (draggingStampId && dragStampStartRef.current && dragStampPosition) {
         const start = dragStampStartRef.current;
         const hasMoved = Math.abs(dragStampPosition.x - start.startX) > 0.5 || Math.abs(dragStampPosition.y - start.startY) > 0.5;
@@ -346,7 +451,7 @@ export default function PDFEditor({
         dragStampStartRef.current = null;
       }
 
-      // 5. Stamp resize end
+      // 7. Stamp resize end
       if (resizingStampId && resizeStampStartRef.current && stampDimensions) {
         updateStamp(resizingStampId, { width: stampDimensions.w, height: stampDimensions.h });
         setResizingStampId(null);
@@ -362,7 +467,7 @@ export default function PDFEditor({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingId, dragPosition, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, draggingStampId, dragStampPosition, resizingStampId, stampDimensions, state.signatures, state.stamps, state.currentPage, state.textItems, updatePosition, updateSignature, updateStamp]);
+  }, [draggingId, dragPosition, draggingRedactId, dragRedactPosition, resizingRedactId, redactDimensions, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, draggingStampId, dragStampPosition, resizingStampId, stampDimensions, state.signatures, state.stamps, state.redactions, state.currentPage, state.textItems, updatePosition, updateRedactionBox, updateSignature, updateStamp]);
 
   // Handle Redaction Box Interactive Drawing on Canvas
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -400,13 +505,14 @@ export default function PDFEditor({
 
   const handleCanvasMouseUp = () => {
     if (isDrawingRedaction && currentRect && drawStart) {
+      const boxType = state.activeTool === 'blackout' ? 'blackout' : 'whiteout';
       if (currentRect.w > 8 && currentRect.h > 8) {
         addRedactionBox({
           x: currentRect.x,
           y: currentRect.y,
           width: currentRect.w,
           height: currentRect.h,
-          type: state.activeTool === 'blackout' ? 'blackout' : 'whiteout',
+          type: boxType,
         });
       } else {
         addRedactionBox({
@@ -414,7 +520,7 @@ export default function PDFEditor({
           y: drawStart.y - 12,
           width: 80,
           height: 24,
-          type: state.activeTool === 'blackout' ? 'blackout' : 'whiteout',
+          type: boxType,
         });
       }
       setIsDrawingRedaction(false);
@@ -832,12 +938,24 @@ export default function PDFEditor({
                   );
                 })}
 
-                {/* Redaction Boxes for Current Page */}
+                {/* Redaction Boxes for Current Page (Blackout & Whiteout) */}
                 {currentRedactions.map(box => {
                   const isSelected = activeRedactionId === box.id;
+                  const isCurrentDragging = draggingRedactId === box.id;
+                  const boxX = isCurrentDragging && dragRedactPosition ? dragRedactPosition.x : box.x;
+                  const boxY = isCurrentDragging && dragRedactPosition ? dragRedactPosition.y : box.y;
+
+                  const isCurrentResizing = resizingRedactId === box.id;
+                  const boxW = isCurrentResizing && redactDimensions ? redactDimensions.w : box.width;
+                  const boxH = isCurrentResizing && redactDimensions ? redactDimensions.h : box.height;
+
                   return (
                     <div
                       key={box.id}
+                      onMouseDown={e => {
+                        e.stopPropagation();
+                        handleRedactionDragStart(box.id, box.x, box.y, e);
+                      }}
                       onClick={e => {
                         e.stopPropagation();
                         setActiveItem(null);
@@ -847,26 +965,34 @@ export default function PDFEditor({
                       }}
                       style={{
                         position: 'absolute',
-                        left: box.x,
-                        top: box.y,
-                        width: box.width,
-                        height: box.height,
+                        left: boxX,
+                        top: boxY,
+                        width: boxW,
+                        height: boxH,
                         background: box.type === 'blackout' ? '#000000' : '#ffffff',
                         border: isSelected
                           ? '2px solid #ef4444'
                           : box.type === 'whiteout'
-                          ? '1px dashed rgba(0,0,0,0.25)'
+                          ? '1px dashed rgba(77,107,250,0.5)'
                           : '1px solid rgba(255,255,255,0.2)',
-                        boxShadow: isSelected ? '0 0 10px rgba(239,68,68,0.5)' : 'none',
+                        boxShadow: isSelected ? '0 0 10px rgba(239,68,68,0.6)' : 'none',
                         zIndex: 15,
-                        cursor: 'pointer',
+                        cursor: 'grab',
+                        touchAction: 'none',
                       }}
                     >
+                      {/* Delete Redaction Button (Works for both Blackout and Whiteout) */}
                       {isSelected && (
                         <button
+                          onMouseDown={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
                           onClick={e => {
                             e.stopPropagation();
+                            e.preventDefault();
                             deleteRedactionBox(box.id);
+                            setActiveRedaction(null);
                           }}
                           style={{
                             position: 'absolute',
@@ -882,13 +1008,37 @@ export default function PDFEditor({
                             alignItems: 'center',
                             justifyContent: 'center',
                             cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                            zIndex: 20,
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                            zIndex: 30,
                           }}
-                          title="Remove redaction box"
+                          title={`Delete ${box.type === 'blackout' ? 'Blackout' : 'Whiteout'} Redaction (or press Delete)`}
                         >
                           <Trash2 size={12} />
                         </button>
+                      )}
+
+                      {/* Resize Corner Handle for Redaction Box */}
+                      {isSelected && (
+                        <div
+                          onMouseDown={e => {
+                            e.stopPropagation();
+                            handleRedactionResizeStart(box.id, box.width, box.height, e);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            bottom: -5,
+                            right: -5,
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: box.type === 'blackout' ? '#ef4444' : '#4d6bfa',
+                            border: '2px solid #fff',
+                            cursor: 'nwse-resize',
+                            zIndex: 30,
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                          }}
+                          title="Drag to resize redaction area"
+                        />
                       )}
                     </div>
                   );
@@ -948,9 +1098,15 @@ export default function PDFEditor({
                       {/* Delete Signature Button */}
                       {isSelected && (
                         <button
+                          onMouseDown={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
                           onClick={e => {
                             e.stopPropagation();
+                            e.preventDefault();
                             deleteSignature(sig.id);
+                            setActiveSignature(null);
                           }}
                           style={{
                             position: 'absolute',
@@ -1055,9 +1211,15 @@ export default function PDFEditor({
                       {/* Delete Stamp Button */}
                       {isSelected && (
                         <button
+                          onMouseDown={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
                           onClick={e => {
                             e.stopPropagation();
+                            e.preventDefault();
                             deleteStamp(stamp.id);
+                            setActiveStamp(null);
                           }}
                           style={{
                             position: 'absolute',

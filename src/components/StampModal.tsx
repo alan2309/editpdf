@@ -503,26 +503,53 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
               </div>
 
               {/* Border Style */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Border Style:</span>
-                {(['double', 'solid', 'dashed'] as const).map(b => (
-                  <button
-                    key={b}
-                    onClick={() => setCustomBorder(b)}
-                    style={{
-                      padding: '0.25rem 0.65rem',
-                      fontSize: '0.75rem',
-                      borderRadius: 6,
-                      background: customBorder === b ? 'rgba(77,107,250,0.25)' : 'rgba(255,255,255,0.05)',
-                      border: customBorder === b ? '1px solid #4d6bfa' : '1px solid rgba(255,255,255,0.1)',
-                      color: customBorder === b ? '#7c9aff' : 'rgba(240,240,240,0.7)',
-                      cursor: 'pointer',
-                      textTransform: 'capitalize',
-                    }}
-                  >
-                    {b}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Border:</span>
+                  {(['double', 'solid', 'dashed'] as const).map(b => (
+                    <button
+                      key={b}
+                      onClick={() => setCustomBorder(b)}
+                      style={{
+                        padding: '0.25rem 0.65rem',
+                        fontSize: '0.75rem',
+                        borderRadius: 6,
+                        background: customBorder === b ? 'rgba(77,107,250,0.25)' : 'rgba(255,255,255,0.05)',
+                        border: customBorder === b ? '1px solid #4d6bfa' : '1px solid rgba(255,255,255,0.1)',
+                        color: customBorder === b ? '#7c9aff' : 'rgba(240,240,240,0.7)',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Angle: {customRotation}°</span>
+                  <input
+                    type="range"
+                    min="-45"
+                    max="45"
+                    value={customRotation}
+                    onChange={e => setCustomRotation(Number(e.target.value))}
+                    style={{ width: 80 }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Opacity: {Math.round(customOpacity * 100)}%</span>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="1.0"
+                    step="0.05"
+                    value={customOpacity}
+                    onChange={e => setCustomOpacity(Number(e.target.value))}
+                    style={{ width: 80 }}
+                  />
+                </div>
               </div>
 
               {/* Live Preview */}

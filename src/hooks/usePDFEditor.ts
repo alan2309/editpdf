@@ -495,13 +495,14 @@ export function usePDFEditor() {
   const deleteRedactionBox = useCallback((id: string) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.redactions[pageNum] || [];
-      const updated = existing.filter(b => b.id !== id);
+      const updatedRedactions: Record<number, RedactionBox[]> = {};
+      for (const [pg, list] of Object.entries(s.redactions)) {
+        updatedRedactions[Number(pg)] = list.filter(b => b.id !== id);
+      }
       return {
         ...s,
         isDirty: true,
-        redactions: { ...s.redactions, [pageNum]: updated },
+        redactions: updatedRedactions,
         activeRedactionId: s.activeRedactionId === id ? null : s.activeRedactionId,
       };
     });
