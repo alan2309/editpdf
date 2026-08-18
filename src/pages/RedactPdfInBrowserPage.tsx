@@ -1,7 +1,7 @@
 import React from 'react';
 import Hero from '../components/Hero';
 import FAQ from '../components/FAQ';
-import { EyeOff, ShieldAlert, CheckCircle2, ArrowRight, ShieldCheck, FileKey, Sparkles } from 'lucide-react';
+import { ShieldAlert, ArrowRight, Lock, Layers } from 'lucide-react';
 import { CustomLink } from '../context/RouterContext';
 import { SEO_DATA } from '../utils/seo';
 
@@ -21,7 +21,7 @@ export default function RedactPdfInBrowserPage({ onFileSelected }: SpokeProps) {
         h1Title={seo.h1}
         h1Highlight={seo.h1Highlight}
         h1Subtitle={seo.h1Subtitle}
-        description="Permanently remove or blackout Social Security Numbers, credit card details, addresses, and sensitive PII from PDF documents in your browser. No server upload, zero data leaks."
+        description="Permanently remove or blackout Social Security Numbers, credit card details, addresses, and sensitive PII from PDF documents in your browser. Guaranteed stream-purged sanitization with zero server uploads."
       />
 
       {/* Spoke Content */}
@@ -40,20 +40,26 @@ export default function RedactPdfInBrowserPage({ onFileSelected }: SpokeProps) {
 
           <div style={{ color: 'rgba(240,240,240,0.7)', fontSize: '0.92rem', lineHeight: 1.8, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <p>
-              Many high-profile data breaches occur because users draw a black colored rectangle over sensitive text in tools like Apple Preview, Word, or basic web viewers and assume it is redacted. 
-              In reality, the underlying text glyphs remain completely intact inside the PDF’s binary stream. Anyone who opens the document can simply highlight, copy, and paste the hidden text, or remove the visual box.
+              Many high-profile data leaks occur because users draw a black rectangle over sensitive text in tools like Apple Preview, basic PDF viewers, or Microsoft Word and assume it is redacted. 
+              In reality, standard shapes only append a visual overlay—the <strong>underlying text stream and glyphs remain completely intact inside the PDF’s binary code</strong>. Anyone who opens the document can copy and paste the hidden text or delete the visual box object in Adobe Acrobat.
             </p>
             <p>
-              <strong>How EditPDF Performs True Vector-Level Sanitization:</strong>
+              <strong>How EditPDF Guarantees Permanent, Forensic-Grade Sanitization:</strong>
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem', marginTop: '0.5rem' }}>
               <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem', padding: '1.25rem' }}>
-                <strong style={{ color: '#4ade80', display: 'block', marginBottom: '0.35rem' }}>Text Stream Erasure</strong>
-                <span style={{ fontSize: '0.85rem' }}>When you delete a text node, the original text is stripped from the document’s content stream during export, rendering it completely unrecoverable via copy-paste.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <Layers size={16} color="#4ade80" />
+                  <strong style={{ color: '#4ade80' }}>Stream-Purged Flattening</strong>
+                </div>
+                <span style={{ fontSize: '0.85rem' }}>When exporting in Permanent Sanitization mode, pages are rendered at high resolution (300 DPI) and reconstructed as clean visual layers. All original text streams and underlying vectors are completely destroyed.</span>
               </div>
               <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem', padding: '1.25rem' }}>
-                <strong style={{ color: '#4ade80', display: 'block', marginBottom: '0.35rem' }}>Zero Server Transmission</strong>
-                <span style={{ fontSize: '0.85rem' }}>Because you are redacting confidential secrets, uploading the file to a cloud server to redact it defeats the purpose. With EditPDF, nothing ever leaves your device.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <Lock size={16} color="#4ade80" />
+                  <strong style={{ color: '#4ade80' }}>Zero Server Transmission</strong>
+                </div>
+                <span style={{ fontSize: '0.85rem' }}>Because you are redacting confidential PII, uploading files to third-party cloud servers introduces data breach risks. With EditPDF, all document parsing, redaction, and flattening execute strictly inside your local browser.</span>
               </div>
             </div>
           </div>
@@ -73,17 +79,17 @@ export default function RedactPdfInBrowserPage({ onFileSelected }: SpokeProps) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
             <div className="card-glass" style={{ borderRadius: '1.25rem', padding: '1.75rem' }}>
               <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#f59e0b', marginBottom: '0.75rem' }}>01</div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#f0f0f0' }}>Select Sensitive Item</h3>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#f0f0f0' }}>Select Redaction Tool</h3>
               <p style={{ fontSize: '0.86rem', color: 'rgba(240,240,240,0.6)', lineHeight: 1.6, margin: 0 }}>
-                Click on the SSN, phone number, name, or confidential clause you need to redact.
+                Click <strong>Blackout Redact</strong> or <strong>Whiteout</strong> in the top toolbar to activate click-and-drag drawing mode.
               </p>
             </div>
 
             <div className="card-glass" style={{ borderRadius: '1.25rem', padding: '1.75rem' }}>
               <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#f59e0b', marginBottom: '0.75rem' }}>02</div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#f0f0f0' }}>Erase or Blackout</h3>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#f0f0f0' }}>Draw Over Sensitive Data</h3>
               <p style={{ fontSize: '0.86rem', color: 'rgba(240,240,240,0.6)', lineHeight: 1.6, margin: 0 }}>
-                Click the trash icon to erase the text entirely, or replace it with standard redaction characters like [REDACTED] or █████.
+                Drag a box over account numbers, SSNs, phone numbers, or confidential clauses. You can also click existing text items directly to delete them.
               </p>
             </div>
 
@@ -91,7 +97,7 @@ export default function RedactPdfInBrowserPage({ onFileSelected }: SpokeProps) {
               <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#f59e0b', marginBottom: '0.75rem' }}>03</div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem', color: '#f0f0f0' }}>Export Sanitized PDF</h3>
               <p style={{ fontSize: '0.86rem', color: 'rgba(240,240,240,0.6)', lineHeight: 1.6, margin: 0 }}>
-                Download your clean PDF. The original vector data is permanently masked and purged from the binary.
+                Click Download PDF and choose <strong>Permanent Stream Sanitization</strong>. The underlying text streams are purged and document metadata is stripped.
               </p>
             </div>
           </div>

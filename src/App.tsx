@@ -19,7 +19,10 @@ function MainApp() {
 
   const {
     state, loadPDF, renderPage, updateText, updateFormat, updatePosition, deleteItem,
-    addTextField, undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
+    addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
+    setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
+    setVerifyOnExport, setVerificationReport, runStandaloneVerification,
+    undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
   } = usePDFEditor();
 
   const handleFileSelected = useCallback(async (file: File) => {
@@ -77,6 +80,16 @@ function MainApp() {
             updatePosition={updatePosition}
             deleteItem={deleteItem}
             addTextField={addTextField}
+            addRedactionBox={addRedactionBox}
+            updateRedactionBox={updateRedactionBox}
+            deleteRedactionBox={deleteRedactionBox}
+            setActiveRedaction={setActiveRedaction}
+            setActiveTool={setActiveTool}
+            setExportMode={setExportMode}
+            setSanitizeMetadata={setSanitizeMetadata}
+            setVerifyOnExport={setVerifyOnExport}
+            setVerificationReport={setVerificationReport}
+            runStandaloneVerification={runStandaloneVerification}
             undo={undo}
             redo={redo}
             setActiveItem={setActiveItem}

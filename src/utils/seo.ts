@@ -113,28 +113,28 @@ export const SEO_DATA: Record<string, PageSEO> = {
     ]
   },
   '/redact-pdf-in-browser': {
-    title: 'Redact PDF in Browser | Remove & Blackout Text Without Uploading',
-    description: 'Permanently redact sensitive text, SSNs, credit card numbers, and confidential PII from PDF documents directly in your browser. 100% client-side security.',
-    keywords: 'redact pdf in browser, blackout pdf text, remove pii from pdf, redact pdf free no upload, sanitize pdf document, erase text from pdf online',
+    title: 'Redact PDF in Browser | Permanent In-Browser Text Sanitization',
+    description: 'Permanently redact sensitive text, SSNs, credit card numbers, and confidential PII from PDF documents in your browser. Stream-purged sanitization with 100% client-side privacy.',
+    keywords: 'redact pdf in browser, blackout pdf text, remove pii from pdf, redact pdf free no upload, sanitize pdf document, permanent pdf redaction, erase text from pdf online',
     canonical: 'https://editpdf.adwyzors.com/redact-pdf-in-browser',
-    ogTitle: 'Redact PDF in Browser - Private Text Removal & Sanitization',
+    ogTitle: 'Redact PDF in Browser - Permanent In-Browser Sanitization',
     ogDescription: 'Safely blackout or remove confidential text and numbers from PDF files without cloud uploads.',
     h1: 'Redact & Sanitize PDF in Browser',
     h1Highlight: 'Zero Cloud Exposure',
     h1Subtitle: 'Remove Sensitive PII & Confidential Data Locally',
-    badge: 'True Vector Redaction · No Cloud Footprint · Free & Instant',
+    badge: 'Permanent Stream Sanitization · 100% In-Browser · Unrecoverable',
     faqs: [
       {
         q: 'How is this redaction different from drawing a black box in a previewer?',
-        a: 'Drawing a simple black box in basic viewers often leaves the underlying text stream intact in the PDF code (which can be copied or selected). Our client-side editor replaces the underlying text stream and covers the region, preventing extraction.'
+        a: 'Drawing a simple black box in standard PDF previewers leaves the underlying text stream intact in the PDF code, allowing anyone to copy or extract the hidden data. Our Permanent Sanitization mode renders pages at 300 DPI and flattens the visual layer, completely destroying underlying text streams, OCR layers, and hidden vector objects from the PDF binary.'
       },
       {
         q: 'Can I remove Social Security Numbers (SSN) and credit card data safely?',
-        a: 'Yes. You can delete or replace sensitive identifying numbers directly on your device before sharing the PDF with third parties.'
+        a: 'Yes. You can draw blackout boxes or delete sensitive identifying numbers, then export via Permanent Sanitization mode to ensure the sensitive bytes are purged before sharing the PDF.'
       },
       {
-        q: 'Are deleted text items recoverable from the exported PDF?',
-        a: 'No. When you delete or modify an item and click Download, the export engine white-outs the original vector region and removes the text from the new document’s text stream.'
+        q: 'Are deleted or blacked-out text items recoverable from the exported PDF?',
+        a: 'No. When exported in Permanent Sanitization mode, the underlying text stream is physically purged from the PDF file. No text extraction tool, CLI utility, or PDF editor can recover the original text because those bytes do not exist in the output file.'
       }
     ]
   },

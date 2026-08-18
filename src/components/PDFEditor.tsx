@@ -1,33 +1,39 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info, GripVertical, Plus } from 'lucide-react';
-import type { PDFTextItem, TextFormat } from '../types/pdf';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info,
+  GripVertical, Plus, ShieldCheck, ShieldAlert, EyeOff, Eraser, MousePointer,
+  Trash2, CheckCircle2, AlertTriangle, FileCheck
+} from 'lucide-react';
+import type {
+  PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
+  ExportMode, VerificationReport
+} from '../types/pdf';
 import TextFormatToolbar from './TextFormatToolbar';
 
 interface PDFEditorProps {
-  state: {
-    fileName: string;
-    totalPages: number;
-    currentPage: number;
-    scale: number;
-    textItems: PDFTextItem[];
-    activeItemId: string | null;
-    isDirty: boolean;
-    isLoading: boolean;
-    isExporting: boolean;
-    error: string | null;
-  };
+  state: PDFEditorState;
   renderPage: (canvas: HTMLCanvasElement, page: number, scale: number) => Promise<PDFTextItem[]>;
   updateText: (id: string, text: string) => void;
   updateFormat: (id: string, partial: Partial<TextFormat>) => void;
   updatePosition: (id: string, x: number, y: number) => void;
   deleteItem: (id: string) => void;
   addTextField: () => void;
+  addRedactionBox: (box: Omit<RedactionBox, 'id' | 'pageIndex'> & { pageIndex?: number }) => void;
+  updateRedactionBox: (id: string, partial: Partial<RedactionBox>) => void;
+  deleteRedactionBox: (id: string) => void;
+  setActiveRedaction: (id: string | null) => void;
+  setActiveTool: (tool: EditorTool) => void;
+  setExportMode: (mode: ExportMode) => void;
+  setSanitizeMetadata: (sanitize: boolean) => void;
+  setVerifyOnExport: (verify: boolean) => void;
+  setVerificationReport: (report: VerificationReport | null) => void;
+  runStandaloneVerification: () => Promise<VerificationReport | null>;
   undo: () => void;
   redo: () => void;
   setActiveItem: (id: string | null) => void;
   setCurrentPage: (page: number) => void;
   setScale: (scale: number) => void;
-  exportPDF: () => void;
+  exportPDF: (mode?: ExportMode, shouldTriggerDownload?: boolean) => void;
   resetEditor: () => void;
 }
 
@@ -36,24 +42,34 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 
 export default function PDFEditor({
-  state, renderPage, updateText, updateFormat, updatePosition, deleteItem, addTextField, undo, redo,
-  setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
+  state, renderPage, updateText, updateFormat, updatePosition, deleteItem,
+  addTextField, addRedactionBox, updateRedactionBox: _updateRedactionBox, deleteRedactionBox,
+  setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
+  setVerifyOnExport, setVerificationReport, runStandaloneVerification,
+  undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
 }: PDFEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showFontNote, setShowFontNote] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
 
-  // Dragging State
+  // Dragging State for Text
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  // Drawing Redaction Box State
+  const [isDrawingRedaction, setIsDrawingRedaction] = useState(false);
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
+  const [currentRect, setCurrentRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   // Render page when page/scale changes
   useEffect(() => {
     if (!canvasRef.current || state.totalPages === 0) return;
     renderPage(canvasRef.current, state.currentPage, state.scale);
     setEditValues({});
-  }, [state.currentPage, state.scale, state.totalPages]);
+  }, [state.currentPage, state.scale, state.totalPages, renderPage]);
 
   // Initialize edit values when textItems arrive
   useEffect(() => {
@@ -62,28 +78,24 @@ export default function PDFEditor({
     setEditValues(vals);
   }, [state.textItems]);
 
-  // Keyboard Shortcuts for Undo/Redo
+  // Keyboard Shortcuts for Undo/Redo/Delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
         if (e.shiftKey) {
-          // Ctrl+Shift+Z = Redo
           if (e.key === 'z' || e.key === 'Z') {
             e.preventDefault();
             redo();
           }
         } else {
-          // Ctrl+Z = Undo
           if (e.key === 'z' || e.key === 'Z') {
             const activeEl = document.activeElement;
             const isEditingInput = activeEl && activeEl.classList.contains('text-overlay-input');
-            // If they are currently typing, let the input's native undo system handle it
             if (!isEditingInput) {
               e.preventDefault();
               undo();
             }
           } else if (e.key === 'y' || e.key === 'Y') {
-            // Ctrl+Y = Redo
             const activeEl = document.activeElement;
             const isEditingInput = activeEl && activeEl.classList.contains('text-overlay-input');
             if (!isEditingInput) {
@@ -92,14 +104,21 @@ export default function PDFEditor({
             }
           }
         }
+      } else if (e.key === 'Escape') {
+        setActiveItem(null);
+        setActiveRedaction(null);
+        setActiveTool('select');
+        setIsDrawingRedaction(false);
+        setDrawStart(null);
+        setCurrentRect(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveTool]);
 
-  // Handle Drag Move Action
+  // Handle Drag Move Action for text items
   const handleDragMouseDown = useCallback((id: string, itemX: number, itemY: number, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -131,7 +150,6 @@ export default function PDFEditor({
       const item = state.textItems.find(i => i.id === draggingId);
       if (!item) return;
 
-      // Keep within canvas boundary margins
       const newX = Math.max(0, Math.min(canvasWidth - item.width, start.startX + deltaX));
       const newY = Math.max(0, Math.min(canvasHeight - item.height, start.startY + deltaY));
 
@@ -160,10 +178,69 @@ export default function PDFEditor({
     };
   }, [draggingId, dragPosition, state.textItems, updatePosition]);
 
+  // Handle Redaction Box Interactive Drawing on Canvas
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (state.activeTool !== 'blackout' && state.activeTool !== 'whiteout') {
+      setActiveItem(null);
+      setActiveRedaction(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const startX = e.clientX - rect.left;
+    const startY = e.clientY - rect.top;
+
+    setIsDrawingRedaction(true);
+    setDrawStart({ x: startX, y: startY });
+    setCurrentRect({ x: startX, y: startY, w: 0, h: 0 });
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingRedaction || !drawStart) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+
+    const x = Math.min(drawStart.x, currentX);
+    const y = Math.min(drawStart.y, currentY);
+    const w = Math.abs(currentX - drawStart.x);
+    const h = Math.abs(currentY - drawStart.y);
+
+    setCurrentRect({ x, y, w, h });
+  };
+
+  const handleCanvasMouseUp = () => {
+    if (isDrawingRedaction && currentRect && drawStart) {
+      if (currentRect.w > 8 && currentRect.h > 8) {
+        addRedactionBox({
+          x: currentRect.x,
+          y: currentRect.y,
+          width: currentRect.w,
+          height: currentRect.h,
+          type: state.activeTool === 'blackout' ? 'blackout' : 'whiteout',
+        });
+      } else {
+        addRedactionBox({
+          x: drawStart.x - 40,
+          y: drawStart.y - 12,
+          width: 80,
+          height: 24,
+          type: state.activeTool === 'blackout' ? 'blackout' : 'whiteout',
+        });
+      }
+      setIsDrawingRedaction(false);
+      setDrawStart(null);
+      setCurrentRect(null);
+      setActiveTool('select');
+    }
+  };
+
   const handleItemClick = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setActiveRedaction(null);
     setActiveItem(id);
-  }, [setActiveItem]);
+  }, [setActiveItem, setActiveRedaction]);
 
   const handleInputChange = useCallback((id: string, val: string) => {
     setEditValues(prev => ({ ...prev, [id]: val }));
@@ -179,13 +256,20 @@ export default function PDFEditor({
     setScale(next);
   };
 
-  const { totalPages, currentPage, scale, textItems, activeItemId, isDirty, isLoading, isExporting, error } = state;
+  const {
+    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId,
+    activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
+    isVerifying, isDirty, isLoading, isExporting, error
+  } = state;
+
+  const currentRedactions = state.redactions[currentPage] || [];
+  const allRedactionCount = Object.values(state.redactions).reduce((acc, list) => acc + list.length, 0);
 
   return (
     <section id="editor" style={{ padding: '0 0 4rem' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 1.5rem' }}>
+      <div style={{ maxWidth: 1320, margin: '0 auto', padding: '0 1.5rem' }}>
 
-        {/* Toolbar */}
+        {/* Top Control Bar */}
         <div className="card-glass" style={{
           borderRadius: '1rem 1rem 0 0',
           padding: '0.75rem 1.25rem',
@@ -196,6 +280,77 @@ export default function PDFEditor({
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f0f0f0', flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {state.fileName}
           </span>
+
+          {/* Primary Editor Tools */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem', borderRadius: '0.65rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              className={`btn-icon ${activeTool === 'select' ? 'btn-active' : ''}`}
+              style={{
+                width: 32, height: 32,
+                background: activeTool === 'select' ? 'rgba(77,107,250,0.25)' : 'transparent',
+                color: activeTool === 'select' ? '#7c9aff' : 'rgba(240,240,240,0.7)',
+                borderColor: activeTool === 'select' ? '#4d6bfa' : 'transparent',
+              }}
+              onClick={() => setActiveTool('select')}
+              title="Select & Edit Existing Text"
+            >
+              <MousePointer size={14} />
+            </button>
+
+            <button
+              className="btn-secondary"
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                color: '#f0f0f0',
+              }}
+              onClick={addTextField}
+              title="Add New Text Field"
+            >
+              <Plus size={13} color="#4d6bfa" /> Add Text
+            </button>
+
+            <button
+              className={`btn-secondary ${activeTool === 'blackout' ? 'btn-active' : ''}`}
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: activeTool === 'blackout' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                borderColor: activeTool === 'blackout' ? '#ef4444' : 'rgba(255,255,255,0.1)',
+                color: activeTool === 'blackout' ? '#fca5a5' : '#f0f0f0',
+                fontWeight: activeTool === 'blackout' ? 700 : 500,
+              }}
+              onClick={() => setActiveTool(activeTool === 'blackout' ? 'select' : 'blackout')}
+              title="Draw Permanent Blackout Redaction Box"
+            >
+              <EyeOff size={13} color="#ef4444" /> Blackout Redact
+            </button>
+
+            <button
+              className={`btn-secondary ${activeTool === 'whiteout' ? 'btn-active' : ''}`}
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: activeTool === 'whiteout' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+                borderColor: activeTool === 'whiteout' ? '#ffffff' : 'rgba(255,255,255,0.1)',
+                color: activeTool === 'whiteout' ? '#ffffff' : '#f0f0f0',
+                fontWeight: activeTool === 'whiteout' ? 700 : 500,
+              }}
+              onClick={() => setActiveTool(activeTool === 'whiteout' ? 'select' : 'whiteout')}
+              title="Draw Whiteout Area Eraser"
+            >
+              <Eraser size={13} color="#ffffff" /> Whiteout
+            </button>
+          </div>
 
           {/* Zoom */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -246,43 +401,50 @@ export default function PDFEditor({
             )}
           </button>
 
-          {/* Add Text */}
-          <button
-            className="btn-secondary"
-            style={{
-              padding: '0.4rem 0.9rem',
-              fontSize: '0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-              background: 'rgba(77, 107, 250, 0.15)',
-              borderColor: 'rgba(77, 107, 250, 0.3)',
-              color: '#4d6bfa',
-              fontWeight: 600,
-            }}
-            onClick={addTextField}
-            title="Add new text block"
-          >
-            <Plus size={13} /> Add Text
-          </button>
+          {/* Redaction Verification Quick Action Button */}
+          {isDirty && (
+            <button
+              className="btn-secondary"
+              style={{
+                padding: '0.4rem 0.85rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: 'rgba(34,197,94,0.12)',
+                borderColor: 'rgba(34,197,94,0.3)',
+                color: '#4ade80',
+              }}
+              onClick={runStandaloneVerification}
+              disabled={isVerifying}
+              title="Audit and verify that redacted text cannot be extracted"
+            >
+              {isVerifying ? (
+                <span style={{ width: 12, height: 12, border: '2px solid rgba(74,222,128,0.3)', borderTopColor: '#4ade80', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
+              ) : (
+                <FileCheck size={13} />
+              )}
+              {isVerifying ? 'Auditing…' : 'Verify Redactions'}
+            </button>
+          )}
 
           {/* Reset */}
           <button className="btn-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }} onClick={resetEditor}>
             <RotateCcw size={13} /> New PDF
           </button>
 
-          {/* Export */}
+          {/* Export / Download Button */}
           <button
             className="btn-primary"
             style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            onClick={exportPDF}
+            onClick={() => setShowExportModal(true)}
             disabled={!isDirty || isExporting}
             title={!isDirty ? 'Make some edits first' : 'Download edited PDF'}
           >
             {isExporting ? (
               <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
             ) : <Download size={14} />}
-            {isExporting ? 'Exporting…' : 'Download PDF'}
+            {isExporting ? 'Processing…' : 'Download PDF'}
           </button>
 
           {/* Close */}
@@ -291,8 +453,33 @@ export default function PDFEditor({
           </button>
         </div>
 
+        {/* Redaction Tool Active Indicator Bar */}
+        {(activeTool === 'blackout' || activeTool === 'whiteout') && (
+          <div style={{
+            background: activeTool === 'blackout' ? 'rgba(239,68,68,0.15)' : 'rgba(77,107,250,0.15)',
+            borderLeft: `3px solid ${activeTool === 'blackout' ? '#ef4444' : '#4d6bfa'}`,
+            padding: '0.5rem 1.25rem',
+            fontSize: '0.82rem',
+            color: '#f0f0f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <span>
+              <strong>{activeTool === 'blackout' ? '⬛ Blackout Redaction Mode:' : '⬜ Whiteout Mode:'}</strong> Click and drag on the PDF page to create a redaction zone.
+            </span>
+            <button
+              onClick={() => setActiveTool('select')}
+              style={{ background: 'transparent', border: 'none', color: 'rgba(240,240,240,0.6)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}
+            >
+              Cancel (Esc)
+            </button>
+          </div>
+        )}
+
         {/* Canvas + text overlay area */}
         <div
+          ref={containerRef}
           className="card-glass"
           style={{
             borderRadius: '0 0 1rem 1rem',
@@ -300,9 +487,14 @@ export default function PDFEditor({
             overflowX: 'auto',
             overflowY: 'auto',
             maxHeight: '75vh',
-            cursor: 'default',
+            cursor: activeTool === 'blackout' || activeTool === 'whiteout' ? 'crosshair' : 'default',
           }}
-          onClick={() => setActiveItem(null)}
+          onClick={() => {
+            if (activeTool === 'select') {
+              setActiveItem(null);
+              setActiveRedaction(null);
+            }
+          }}
         >
           {isLoading && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '5rem', gap: '1rem', color: 'rgba(240,240,240,0.5)' }}>
@@ -319,13 +511,22 @@ export default function PDFEditor({
 
           {!isLoading && !error && (
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              {/* Canvas wrapper — text overlays positioned absolutely inside */}
-              <div className="pdf-canvas-wrapper" style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
+              <div
+                className="pdf-canvas-wrapper"
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                style={{
+                  boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                  position: 'relative',
+                  userSelect: 'none',
+                }}
+              >
                 <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 4 }} />
 
-                {/* White cover-up boxes for deleted or moved text items (blocks original text in preview) */}
+                {/* White cover-up boxes for deleted or moved text items */}
                 {textItems.map(item => {
-                  if (item.isAdded) return null; // Added items have no original text to cover up!
+                  if (item.isAdded) return null;
                   const hasPosChange = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
                   const isDeleted = !!item.isDeleted;
                   if (!isDeleted && !hasPosChange) return null;
@@ -347,7 +548,84 @@ export default function PDFEditor({
                   );
                 })}
 
-                {/* Text overlays (hide deleted ones) */}
+                {/* Redaction Boxes for Current Page */}
+                {currentRedactions.map(box => {
+                  const isSelected = activeRedactionId === box.id;
+                  return (
+                    <div
+                      key={box.id}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setActiveItem(null);
+                        setActiveRedaction(box.id);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: box.x,
+                        top: box.y,
+                        width: box.width,
+                        height: box.height,
+                        background: box.type === 'blackout' ? '#000000' : '#ffffff',
+                        border: isSelected
+                          ? '2px solid #ef4444'
+                          : box.type === 'whiteout'
+                          ? '1px dashed rgba(0,0,0,0.25)'
+                          : '1px solid rgba(255,255,255,0.2)',
+                        boxShadow: isSelected ? '0 0 10px rgba(239,68,68,0.5)' : 'none',
+                        zIndex: 15,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isSelected && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            deleteRedactionBox(box.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: -12,
+                            right: -12,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: '#ef4444',
+                            color: '#fff',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                            zIndex: 20,
+                          }}
+                          title="Remove redaction box"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* In-progress Dragging Redaction Box Preview */}
+                {isDrawingRedaction && currentRect && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: currentRect.x,
+                      top: currentRect.y,
+                      width: currentRect.w,
+                      height: currentRect.h,
+                      background: state.activeTool === 'blackout' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
+                      border: `2px dashed ${state.activeTool === 'blackout' ? '#ef4444' : '#4d6bfa'}`,
+                      zIndex: 25,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
+
+                {/* Text overlays */}
                 {textItems.filter(item => !item.isDeleted).map(item => {
                   const isActive = activeItemId === item.id;
                   const currentVal = editValues[item.id] ?? item.editedText;
@@ -389,7 +667,6 @@ export default function PDFEditor({
                     >
                       {isActive ? (
                         <>
-                          {/* Left side drag handle */}
                           <div
                             className="drag-handle"
                             onMouseDown={e => handleDragMouseDown(item.id, item.x, item.y, e)}
@@ -413,7 +690,7 @@ export default function PDFEditor({
                           {(() => {
                             const canvas = canvasRef.current;
                             const canvasWidth = canvas ? canvas.width : 2000;
-                            const toolbarWidth = 380; // Estimated toolbar width
+                            const toolbarWidth = 380;
                             const preferredLeftAbs = itemX + item.width / 2 - toolbarWidth / 2;
                             const clampedLeftAbs = Math.max(10, Math.min(canvasWidth - toolbarWidth - 10, preferredLeftAbs));
                             const toolbarLeftRel = clampedLeftAbs - itemX;
@@ -430,7 +707,7 @@ export default function PDFEditor({
                               />
                             );
                           })()}
-                          {/* Editable input — grows with content via size attribute */}
+
                           <input
                             className="text-overlay-input"
                             autoFocus
@@ -451,13 +728,12 @@ export default function PDFEditor({
                               fontWeight: item.format.bold ? 'bold' : 'normal',
                               fontStyle: item.format.italic ? 'italic' : 'normal',
                               textDecoration: item.format.underline ? 'underline' : 'none',
-                              fontFamily: item.format.fontFamily === 'helvetica' ? 'Helvetica, Arial, sans-serif' : item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : '"Courier New", Courier, monospace',
+                              fontFamily: item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : item.format.fontFamily === 'courier' ? '"Courier New", Courier, monospace' : 'Helvetica, Arial, sans-serif',
                               color: item.format.color,
                             }}
                           />
                         </>
                       ) : hasChanges ? (
-                        /* Show new text visibly — no clipping */
                         <span style={{
                           display: 'block',
                           width: 'max-content',
@@ -467,7 +743,7 @@ export default function PDFEditor({
                           fontWeight: item.format.bold ? 'bold' : 'normal',
                           fontStyle: item.format.italic ? 'italic' : 'normal',
                           textDecoration: item.format.underline ? 'underline' : 'none',
-                          fontFamily: item.format.fontFamily === 'helvetica' ? 'Helvetica, Arial, sans-serif' : item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : '"Courier New", Courier, monospace',
+                          fontFamily: item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : item.format.fontFamily === 'courier' ? '"Courier New", Courier, monospace' : 'Helvetica, Arial, sans-serif',
                           whiteSpace: 'nowrap',
                           userSelect: 'none',
                           padding: '0 2px',
@@ -475,7 +751,6 @@ export default function PDFEditor({
                           {currentVal}
                         </span>
                       ) : (
-                        /* Transparent hover zone for unedited text */
                         <span style={{
                           fontSize: item.fontSize,
                           lineHeight: 1,
@@ -496,16 +771,325 @@ export default function PDFEditor({
           )}
         </div>
 
-        {/* Edit count badge */}
+        {/* Status / Summary Badge */}
         {isDirty && (
-          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'rgba(240,240,240,0.45)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4d6bfa', display: 'inline-block', boxShadow: '0 0 6px #4d6bfa' }} />
-            {textItems.filter(i => (editValues[i.id] ?? i.editedText) !== i.originalText || i.isDeleted || Math.abs(i.x - i.originalX) > 0.5 || Math.abs(i.y - i.originalY) > 0.5).length} text{' '}
-            {textItems.filter(i => (editValues[i.id] ?? i.editedText) !== i.originalText || i.isDeleted || Math.abs(i.x - i.originalX) > 0.5 || Math.abs(i.y - i.originalY) > 0.5).length === 1 ? 'field' : 'fields'} modified
-            {' · '}Ready to download (Ctrl+Z to Undo, Ctrl+Y to Redo)
+          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem', color: 'rgba(240,240,240,0.55)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 6px #4ade80' }} />
+              <span>Document modified across {Object.keys(state.pageItems).length || 1} page(s)</span>
+              {allRedactionCount > 0 && (
+                <span style={{ color: '#fca5a5', fontWeight: 600 }}>· {allRedactionCount} Redaction(s) Active</span>
+              )}
+            </div>
+            <div>
+              Ready to export · 100% In-Browser Sanitization
+            </div>
           </div>
         )}
+
       </div>
+
+      {/* Export & Sanitization Settings Modal */}
+      {showExportModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '1.5rem',
+        }}>
+          <div className="card-glass" style={{
+            maxWidth: 560,
+            width: '100%',
+            borderRadius: '1.25rem',
+            padding: '2rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
+            border: '1px solid rgba(255,255,255,0.15)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(77,107,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShieldCheck size={20} color="#4d6bfa" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#f0f0f0' }}>Export Sanitized PDF</h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)' }}>Select forensic export mode for your document</p>
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setShowExportModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Mode selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
+              <label
+                onClick={() => setExportMode('sanitized')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.75rem',
+                  padding: '1rem',
+                  borderRadius: '0.85rem',
+                  background: exportMode === 'sanitized' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.03)',
+                  border: `1.5px solid ${exportMode === 'sanitized' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="exportMode"
+                  checked={exportMode === 'sanitized'}
+                  onChange={() => setExportMode('sanitized')}
+                  style={{ marginTop: '0.25rem' }}
+                />
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <strong style={{ color: '#f0f0f0', fontSize: '0.92rem' }}>Permanent Stream Sanitization (Flattened)</strong>
+                    <span style={{ fontSize: '0.65rem', background: '#22c55e', color: '#000', padding: '0.15rem 0.4rem', borderRadius: 4, fontWeight: 700 }}>RECOMMENDED</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(240,240,240,0.65)', lineHeight: 1.5 }}>
+                    Renders pages at crisp 300 DPI high resolution and <strong>permanently destroys underlying text streams, OCR layers, and hidden vector objects</strong>. Guaranteed 100% unrecoverable by any PDF inspector or text extraction tool.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                onClick={() => setExportMode('vector')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.75rem',
+                  padding: '1rem',
+                  borderRadius: '0.85rem',
+                  background: exportMode === 'vector' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.03)',
+                  border: `1.5px solid ${exportMode === 'vector' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="exportMode"
+                  checked={exportMode === 'vector'}
+                  onChange={() => setExportMode('vector')}
+                  style={{ marginTop: '0.25rem' }}
+                />
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <strong style={{ color: '#f0f0f0', fontSize: '0.92rem' }}>Standard Vector Overlay</strong>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(240,240,240,0.65)', lineHeight: 1.5 }}>
+                    Adds text & shape overlays on top of the original vector streams. Keeps text selectable in external viewers. <em>(Not recommended for confidential PII redactions)</em>.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Optional Verification & Metadata Settings */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.75rem', padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.82rem', color: '#f0f0f0' }}>
+                <input
+                  type="checkbox"
+                  checked={verifyOnExport}
+                  onChange={e => setVerifyOnExport(e.target.checked)}
+                />
+                <span><strong>Redaction Verification Scan:</strong> Audit exported binary to verify redacted text is 100% unextractable.</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.82rem', color: '#f0f0f0' }}>
+                <input
+                  type="checkbox"
+                  checked={sanitizeMetadata}
+                  onChange={e => setSanitizeMetadata(e.target.checked)}
+                />
+                <span><strong>Strip Document Metadata:</strong> Purges author, creation dates, and editing software fingerprints.</span>
+              </label>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button className="btn-secondary" onClick={() => setShowExportModal(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                style={{ padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                onClick={() => {
+                  setShowExportModal(false);
+                  exportPDF(exportMode, true);
+                }}
+              >
+                <Download size={15} />
+                {exportMode === 'sanitized' ? 'Download Sanitized PDF' : 'Download Vector PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Redaction Verification Audit Report Modal */}
+      {verificationReport && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 11000,
+          padding: '1.5rem',
+        }}>
+          <div className="card-glass" style={{
+            maxWidth: 620,
+            width: '100%',
+            borderRadius: '1.25rem',
+            padding: '2rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
+            border: `1.5px solid ${verificationReport.passed ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 12,
+                  background: verificationReport.passed ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  {verificationReport.passed ? (
+                    <CheckCircle2 size={24} color="#22c55e" />
+                  ) : (
+                    <AlertTriangle size={24} color="#ef4444" />
+                  )}
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#f0f0f0' }}>
+                    {verificationReport.passed ? 'Redaction Verification Passed' : 'Redaction Warning'}
+                  </h3>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: verificationReport.passed ? '#86efac' : '#fca5a5' }}>
+                    {verificationReport.passed
+                      ? '“We scanned the exported PDF and could not find the redacted text.”'
+                      : 'Sensitive text was detected in the underlying vector streams.'}
+                  </p>
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setVerificationReport(null)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Audit Summary Box */}
+            <div style={{
+              background: 'rgba(255,255,255,0.03)',
+              borderRadius: '0.85rem',
+              padding: '1rem 1.25rem',
+              marginBottom: '1.25rem',
+              border: '1px solid rgba(255,255,255,0.08)',
+              fontSize: '0.84rem',
+              color: 'rgba(240,240,240,0.7)',
+              lineHeight: 1.6,
+            }}>
+              {verificationReport.passed ? (
+                <div>
+                  A complete forensic in-browser scan of the exported PDF binary verified that <strong>{verificationReport.checks.length} redacted phrases</strong> have been completely purged from all text streams, OCR layers, and hidden vector paths.
+                  {verificationReport.metadataStripped && (
+                    <span style={{ display: 'block', marginTop: '0.35rem', color: '#86efac' }}>
+                      ✓ All document author metadata & editing software fingerprints stripped.
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  The document was exported in <strong>Standard Vector Overlay</strong> mode. The visual box was drawn over the text, but the original text bytes remain extractable in the underlying PDF stream.
+                  <div style={{ marginTop: '0.5rem', color: '#fca5a5', fontWeight: 600 }}>
+                    Recommended: Switch to Permanent Stream Sanitization (Flattened) to permanently purge these text bytes.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Itemized Audit Checklist */}
+            {verificationReport.checks.length > 0 && (
+              <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: '1.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.25)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(240,240,240,0.4)', padding: '0.25rem 0.5rem 0.5rem', fontWeight: 700 }}>
+                  Itemized Forensic Check Results ({verificationReport.checks.length} items)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {verificationReport.checks.map((check, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.4rem 0.65rem',
+                        borderRadius: '0.5rem',
+                        background: 'rgba(255,255,255,0.02)',
+                        fontSize: '0.78rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, overflow: 'hidden' }}>
+                        <span style={{ color: check.status === 'purged' ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+                          {check.status === 'purged' ? '✓' : '✗'}
+                        </span>
+                        <span style={{ color: '#f0f0f0', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          &ldquo;{check.term.length > 35 ? check.term.substring(0, 35) + '…' : check.term}&rdquo;
+                        </span>
+                        <span style={{ color: 'rgba(240,240,240,0.4)', fontSize: '0.72rem' }}>
+                          (Pg {check.pageIndex})
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        padding: '0.15rem 0.45rem',
+                        borderRadius: 4,
+                        background: check.status === 'purged' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.2)',
+                        color: check.status === 'purged' ? '#4ade80' : '#fca5a5',
+                      }}>
+                        {check.status === 'purged' ? '0 FOUND (PURGED)' : `${check.foundCount} OCCURRENCE(S)`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              {!verificationReport.passed ? (
+                <button
+                  className="btn-primary"
+                  style={{ padding: '0.6rem 1.5rem', background: '#22c55e', borderColor: '#22c55e', color: '#000', fontWeight: 700 }}
+                  onClick={() => {
+                    setExportMode('sanitized');
+                    setVerificationReport(null);
+                    exportPDF('sanitized', true);
+                  }}
+                >
+                  Switch to Sanitized Mode & Download
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  style={{ padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  onClick={() => {
+                    setVerificationReport(null);
+                    exportPDF(verificationReport.mode, true);
+                  }}
+                >
+                  <Download size={15} />
+                  Download Verified PDF
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

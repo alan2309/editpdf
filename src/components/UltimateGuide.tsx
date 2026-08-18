@@ -182,8 +182,8 @@ export default function UltimateGuide() {
                 <div style={{ fontSize: '0.85rem' }}>Interactive, floating editable nodes are calibrated to each text element’s exact baseline, allowing you to edit text intuitively.</div>
               </div>
               <div style={{ borderLeft: '3px solid #f59e0b', paddingLeft: '1rem', background: 'rgba(245,158,11,0.04)', borderRadius: '0 0.75rem 0.75rem 0', padding: '0.75rem 1rem' }}>
-                <div style={{ fontWeight: 700, color: '#f0f0f0', marginBottom: '0.25rem' }}>4. Binary PDF Reconstruction</div>
-                <div style={{ fontSize: '0.85rem' }}>Upon export, pdf-lib modifies content streams directly in memory, embedding clean standard fonts and producing a fresh binary PDF for download.</div>
+                <div style={{ fontWeight: 700, color: '#f0f0f0', marginBottom: '0.25rem' }}>4. Sanitization & PDF Generation</div>
+                <div style={{ fontSize: '0.85rem' }}>Upon export, choose permanent stream-purged sanitization (rendering high-DPI layers that physically purge underlying text streams and metadata) or standard vector overlay.</div>
               </div>
             </div>
 

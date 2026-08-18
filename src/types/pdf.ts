@@ -47,15 +47,54 @@ export interface PDFPageInfo {
   height: number;
 }
 
+export interface RedactionBox {
+  id: string;
+  pageIndex: number;
+  x: number;        // canvas-space x
+  y: number;        // canvas-space y
+  width: number;    // canvas-space width
+  height: number;   // canvas-space height
+  type: 'blackout' | 'whiteout';
+}
+
+export type EditorTool = 'select' | 'text' | 'blackout' | 'whiteout';
+export type ExportMode = 'sanitized' | 'vector';
+
+export interface VerificationCheck {
+  term: string;
+  pageIndex: number;
+  foundCount: number;
+  status: 'purged' | 'detected';
+}
+
+export interface VerificationReport {
+  timestamp: number;
+  mode: ExportMode;
+  totalChecked: number;
+  passed: boolean;
+  checks: VerificationCheck[];
+  metadataStripped: boolean;
+}
+
 export interface PDFEditorState {
   fileName: string;
   totalPages: number;
   currentPage: number;
   scale: number;
   textItems: PDFTextItem[];
+  pageItems: Record<number, PDFTextItem[]>;
+  redactions: Record<number, RedactionBox[]>;
   activeItemId: string | null;
+  activeRedactionId: string | null;
+  activeTool: EditorTool;
+  exportMode: ExportMode;
+  sanitizeMetadata: boolean;
+  verifyOnExport: boolean;
+  verificationReport: VerificationReport | null;
+  isVerifying: boolean;
   isDirty: boolean;
   isLoading: boolean;
   isExporting: boolean;
   error: string | null;
 }
+
