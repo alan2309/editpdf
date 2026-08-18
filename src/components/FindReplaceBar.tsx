@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Replace, ChevronDown, ChevronUp, X, EyeOff,
   Check, ArrowRight
@@ -44,6 +44,7 @@ export default function FindReplaceBar({
   const [wholeWord, setWholeWord] = useState(false);
   const [showReplace, setShowReplace] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -57,41 +58,33 @@ export default function FindReplaceBar({
     }
   }, [isOpen]);
 
-  // Execute Search whenever query or options change
-  useEffect(() => {
-    if (!isOpen || !query.trim()) {
+  // Execute explicit search
+  const performSearch = useCallback(async (targetQuery?: string) => {
+    const q = (targetQuery !== undefined ? targetQuery : query).trim();
+    if (!q) {
       setMatches([]);
       setCurrentMatchIndex(-1);
+      setHasSearched(false);
       return;
     }
 
-    let isMounted = true;
     setIsSearching(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const found = await onSearch(query.trim(), matchCase, wholeWord);
-        if (isMounted) {
-          setMatches(found);
-          if (found.length > 0) {
-            setCurrentMatchIndex(0);
-            onNavigateToMatch(found[0]);
-          } else {
-            setCurrentMatchIndex(-1);
-          }
-          setIsSearching(false);
-        }
-      } catch (err) {
-        console.error('Search failed:', err);
-        if (isMounted) setIsSearching(false);
+    try {
+      const found = await onSearch(q, matchCase, wholeWord);
+      setMatches(found);
+      setHasSearched(true);
+      if (found.length > 0) {
+        setCurrentMatchIndex(0);
+        onNavigateToMatch(found[0]);
+      } else {
+        setCurrentMatchIndex(-1);
       }
-    }, 150);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [query, matchCase, wholeWord, isOpen, onSearch, onNavigateToMatch, setMatches, setCurrentMatchIndex]);
+    } catch (err) {
+      console.error('Search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [query, matchCase, wholeWord, onSearch, onNavigateToMatch, setMatches, setCurrentMatchIndex]);
 
   if (!isOpen) return null;
 
@@ -109,25 +102,36 @@ export default function FindReplaceBar({
     onNavigateToMatch(matches[prev]);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       onClose();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (e.shiftKey) {
-        handlePrevMatch();
+      // If matches already found and query hasn't changed, navigate to next/prev match
+      if (hasSearched && matches.length > 0) {
+        if (e.shiftKey) {
+          handlePrevMatch();
+        } else {
+          handleNextMatch();
+        }
       } else {
-        handleNextMatch();
+        // Execute search on Enter
+        performSearch();
       }
     }
   };
 
-  const handleReplaceCurrent = () => {
+  const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
+    setHasSearched(false); // Reset searched flag so pressing Enter searches fresh query
+  };
+
+  const handleReplaceCurrent = async () => {
     if (matches.length === 0 || currentMatchIndex < 0 || !matches[currentMatchIndex]) return;
     const current = matches[currentMatchIndex];
     onReplaceCurrent(current, replaceWith);
 
-    // Re-run search after small delay to refresh matches
+    // Refresh search results after replace
     setTimeout(async () => {
       const refreshed = await onSearch(query.trim(), matchCase, wholeWord);
       setMatches(refreshed);
@@ -138,7 +142,7 @@ export default function FindReplaceBar({
       } else {
         setCurrentMatchIndex(-1);
       }
-    }, 50);
+    }, 60);
   };
 
   const handleReplaceAllClick = async () => {
@@ -148,6 +152,7 @@ export default function FindReplaceBar({
     setTimeout(() => setNotification(null), 3000);
     setMatches([]);
     setCurrentMatchIndex(-1);
+    setHasSearched(false);
   };
 
   const handleRedactAllClick = async () => {
@@ -157,6 +162,7 @@ export default function FindReplaceBar({
     setTimeout(() => setNotification(null), 3000);
     setMatches([]);
     setCurrentMatchIndex(-1);
+    setHasSearched(false);
   };
 
   return (
@@ -165,9 +171,9 @@ export default function FindReplaceBar({
       top: 12,
       right: 18,
       zIndex: 1000,
-      width: 420,
+      width: 440,
       maxWidth: 'calc(100vw - 36px)',
-      background: 'rgba(20, 20, 32, 0.95)',
+      background: 'rgba(20, 20, 32, 0.96)',
       backdropFilter: 'blur(16px)',
       border: '1px solid rgba(255, 255, 255, 0.15)',
       borderRadius: '1rem',
@@ -178,7 +184,7 @@ export default function FindReplaceBar({
       gap: '0.65rem',
     }}>
       {/* Top Search Row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
         <div style={{
           position: 'relative',
           flex: 1,
@@ -194,9 +200,9 @@ export default function FindReplaceBar({
             ref={searchInputRef}
             type="text"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={handleQueryChange}
             onKeyDown={handleKeyDown}
-            placeholder="Find in document…"
+            placeholder="Type word to find…"
             style={{
               background: 'transparent',
               border: 'none',
@@ -212,6 +218,7 @@ export default function FindReplaceBar({
                 setQuery('');
                 setMatches([]);
                 setCurrentMatchIndex(-1);
+                setHasSearched(false);
               }}
               style={{ background: 'transparent', border: 'none', color: 'rgba(240,240,240,0.4)', cursor: 'pointer', padding: 0, display: 'flex' }}
             >
@@ -220,45 +227,65 @@ export default function FindReplaceBar({
           )}
         </div>
 
-        {/* Counter Badge */}
-        <div style={{
-          fontSize: '0.75rem',
-          fontWeight: 600,
-          color: matches.length > 0 ? '#4ade80' : 'rgba(240,240,240,0.4)',
-          minWidth: 55,
-          textAlign: 'center',
-          flexShrink: 0,
-        }}>
+        {/* Explicit Search Button */}
+        <button
+          className="btn-primary"
+          style={{
+            padding: '0.35rem 0.65rem',
+            fontSize: '0.78rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            background: '#4d6bfa',
+            flexShrink: 0,
+          }}
+          onClick={() => performSearch()}
+          disabled={!query.trim() || isSearching}
+          title="Search Document (Enter)"
+        >
           {isSearching ? (
-            'Searching…'
-          ) : query ? (
-            matches.length > 0 ? `${currentMatchIndex + 1} of ${matches.length}` : '0 matches'
+            <span style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
           ) : (
-            '0 found'
+            <Search size={12} />
           )}
-        </div>
+          Find
+        </button>
+
+        {/* Counter Badge */}
+        {hasSearched && (
+          <div style={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: matches.length > 0 ? '#4ade80' : '#f87171',
+            minWidth: 50,
+            textAlign: 'center',
+            flexShrink: 0,
+          }}>
+            {matches.length > 0 ? `${currentMatchIndex + 1}/${matches.length}` : '0 found'}
+          </div>
+        )}
 
         {/* Nav arrows */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', flexShrink: 0 }}>
-          <button
-            className="btn-icon"
-            style={{ width: 28, height: 28 }}
-            onClick={handlePrevMatch}
-            disabled={matches.length === 0}
-            title="Previous match (Shift+Enter)"
-          >
-            <ChevronUp size={14} />
-          </button>
-          <button
-            className="btn-icon"
-            style={{ width: 28, height: 28 }}
-            onClick={handleNextMatch}
-            disabled={matches.length === 0}
-            title="Next match (Enter)"
-          >
-            <ChevronDown size={14} />
-          </button>
-        </div>
+        {matches.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', flexShrink: 0 }}>
+            <button
+              className="btn-icon"
+              style={{ width: 28, height: 28 }}
+              onClick={handlePrevMatch}
+              title="Previous match (Shift+Enter)"
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              className="btn-icon"
+              style={{ width: 28, height: 28 }}
+              onClick={handleNextMatch}
+              title="Next match (Enter)"
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Close Button */}
         <button
@@ -275,7 +302,12 @@ export default function FindReplaceBar({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <button
-            onClick={() => setMatchCase(p => !p)}
+            onClick={() => {
+              setMatchCase(p => !p);
+              if (hasSearched && query.trim()) {
+                setTimeout(() => performSearch(), 50);
+              }
+            }}
             style={{
               padding: '0.18rem 0.45rem',
               borderRadius: 4,
@@ -291,7 +323,12 @@ export default function FindReplaceBar({
           </button>
 
           <button
-            onClick={() => setWholeWord(p => !p)}
+            onClick={() => {
+              setWholeWord(p => !p);
+              if (hasSearched && query.trim()) {
+                setTimeout(() => performSearch(), 50);
+              }
+            }}
             style={{
               padding: '0.18rem 0.45rem',
               borderRadius: 4,

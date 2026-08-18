@@ -626,8 +626,8 @@ export default function PDFEditor({
     if (match.pageNumber !== state.currentPage) {
       setCurrentPage(match.pageNumber);
     }
-    setActiveItem(match.itemId);
-  }, [state.currentPage, setCurrentPage, setActiveItem]);
+    // Do not call setActiveItem() here to avoid focus hijacking while searching/replacing
+  }, [state.currentPage, setCurrentPage]);
 
   const {
     totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId, activeStampId,
