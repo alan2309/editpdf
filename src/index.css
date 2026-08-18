@@ -188,22 +188,23 @@ body {
 }
 
 .text-overlay-input {
-  /* NOT absolute — flows inside the overlay div and can grow wider */
   position: relative;
   display: block;
+  box-sizing: border-box;
   background: #ffffff;
   border: 1px solid #4d6bfa;
   border-radius: 2px;
   outline: none;
   color: #000000;
   font-family: inherit;
-  padding: 0 4px;
-  /* Grow with typed content — min matches original text box */
-  width: auto;
-  min-width: 80px;
+  padding: 1px 3px;
   box-shadow: 0 0 0 3px rgba(77,107,250,0.25);
   resize: none;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.2;
 }
 
 /* ============ Drag-drop zone ============ */

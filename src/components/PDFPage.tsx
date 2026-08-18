@@ -8,6 +8,153 @@ import type {
 } from '../types/pdf';
 import TextFormatToolbar from './TextFormatToolbar';
 
+interface ActiveTextOverlayEditorProps {
+  item: PDFTextItem;
+  currentVal: string;
+  itemX: number;
+  pageWidth: number;
+  initialCaretIndex: number;
+  onItemTextChange: (id: string, text: string) => void;
+  onItemBlur: (id: string) => void;
+  updateFormat: (id: string, partial: Partial<TextFormat>) => void;
+  deleteItem: (id: string) => void;
+  handleDragPointerDown: (id: string, x: number, y: number, e: React.PointerEvent) => void;
+}
+
+function ActiveTextOverlayEditor({
+  item,
+  currentVal,
+  itemX,
+  pageWidth,
+  initialCaretIndex,
+  onItemTextChange,
+  onItemBlur,
+  updateFormat,
+  deleteItem,
+  handleDragPointerDown,
+}: ActiveTextOverlayEditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const availableWidth = Math.max(80, pageWidth - itemX - 16);
+
+  // Auto-resize height as text wraps or grows vertically
+  const autoResize = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.max(item.height, textarea.scrollHeight)}px`;
+  }, [item.height]);
+
+  useEffect(() => {
+    autoResize();
+  }, [currentVal, item.fontSize, item.format.fontSizeDelta, item.format.fontFamily, autoResize]);
+
+  // Initial focus and caret placement without horizontal jump
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const rId = requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.scrollLeft = 0;
+      textarea.scrollTop = 0;
+
+      const caretPos = Math.max(0, Math.min(currentVal.length, initialCaretIndex));
+      try {
+        textarea.setSelectionRange(caretPos, caretPos);
+      } catch {
+        // Fallback for environments without selection range support
+      }
+
+      try {
+        textarea.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      } catch {
+        // Fallback for headless testing
+      }
+    });
+
+    return () => cancelAnimationFrame(rId);
+  }, [initialCaretIndex, currentVal.length]);
+
+  return (
+    <>
+      <div
+        className="drag-handle"
+        onPointerDown={e => handleDragPointerDown(item.id, item.x, item.y, e)}
+        style={{
+          position: 'absolute',
+          left: -20,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          cursor: 'grab',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '2px',
+          color: '#4d6bfa',
+          zIndex: 100,
+          touchAction: 'none',
+        }}
+        title="Drag to reposition text"
+      >
+        <GripVertical size={14} />
+      </div>
+
+      {(() => {
+        const toolbarWidth = 380;
+        const preferredLeftAbs = itemX + item.width / 2 - toolbarWidth / 2;
+        const clampedLeftAbs = Math.max(10, Math.min(pageWidth - toolbarWidth - 10, preferredLeftAbs));
+        const toolbarLeftRel = clampedLeftAbs - itemX;
+
+        return (
+          <TextFormatToolbar
+            item={item}
+            onUpdateFormat={updateFormat}
+            onDelete={deleteItem}
+            style={{
+              left: `${toolbarLeftRel}px`,
+              transform: 'none',
+            }}
+          />
+        );
+      })()}
+
+      <textarea
+        ref={textareaRef}
+        className="text-overlay-input"
+        value={currentVal}
+        rows={1}
+        style={{
+          fontSize: item.fontSize + item.format.fontSizeDelta,
+          fontWeight: item.format.bold ? 700 : 400,
+          fontStyle: item.format.italic ? 'italic' : 'normal',
+          textDecoration: item.format.underline ? 'underline' : 'none',
+          fontFamily: item.format.fontFamily === 'times'
+            ? 'Times New Roman, serif'
+            : item.format.fontFamily === 'courier'
+            ? 'Courier New, monospace'
+            : 'Helvetica, Arial, sans-serif',
+          color: item.format.color,
+          width: '100%',
+          maxWidth: `${availableWidth}px`,
+          minWidth: `${Math.min(item.width, availableWidth)}px`,
+        }}
+        onChange={e => {
+          onItemTextChange(item.id, e.target.value);
+        }}
+        onBlur={() => onItemBlur(item.id)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            onItemBlur(item.id);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onItemBlur(item.id);
+          }
+        }}
+      />
+    </>
+  );
+}
+
 interface PDFPageProps {
   pageNumber: number; // 1-indexed
   scale: number;
@@ -98,6 +245,9 @@ export default function PDFPage({
   const [isInViewport, setIsInViewport] = useState(false);
   const [isRendered, setIsRendered] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+
+  // Initial caret position calculated on click
+  const [initialCaretPos, setInitialCaretPos] = useState<number>(0);
 
   // Pointer Dragging State for Text
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -198,9 +348,10 @@ export default function PDFPage({
 
   // ── Drag Start Handlers with Pointer Capture ────────────────────────────────
   const handleDragPointerDown = useCallback((id: string, itemX: number, itemY: number, e: React.PointerEvent) => {
-    e.preventDefault();
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setDraggingId(id);
     setDragPosition({ x: itemX, y: itemY });
     dragStartRef.current = {
@@ -211,14 +362,16 @@ export default function PDFPage({
     };
   }, []);
 
-  const handleRedactionDragStart = useCallback((id: string, boxX: number, boxY: number, e: React.PointerEvent) => {
-    e.preventDefault();
+  const handleRedactDragStart = useCallback((id: string, boxX: number, boxY: number, e: React.PointerEvent) => {
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveRedaction(id);
     setActiveItem(null);
     setActiveSignature(null);
     setActiveStamp(null);
+
     setDraggingRedactId(id);
     setDragRedactPosition({ x: boxX, y: boxY });
     dragRedactStartRef.current = {
@@ -227,13 +380,18 @@ export default function PDFPage({
       startX: boxX,
       startY: boxY,
     };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
+  }, [setActiveRedaction, setActiveItem, setActiveSignature, setActiveStamp]);
 
-  const handleRedactionResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
+  const handleRedactResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveRedaction(id);
+    setActiveItem(null);
+    setActiveSignature(null);
+    setActiveStamp(null);
+
     setResizingRedactId(id);
     setRedactDimensions({ w, h });
     resizeRedactStartRef.current = {
@@ -242,16 +400,18 @@ export default function PDFPage({
       startW: w,
       startH: h,
     };
-  }, [setActiveRedaction]);
+  }, [setActiveRedaction, setActiveItem, setActiveSignature, setActiveStamp]);
 
-  const handleSignatureDragStart = useCallback((id: string, sigX: number, sigY: number, e: React.PointerEvent) => {
-    e.preventDefault();
+  const handleSigDragStart = useCallback((id: string, sigX: number, sigY: number, e: React.PointerEvent) => {
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveSignature(id);
     setActiveItem(null);
     setActiveRedaction(null);
     setActiveStamp(null);
+
     setDraggingSigId(id);
     setDragSigPosition({ x: sigX, y: sigY });
     dragSigStartRef.current = {
@@ -260,13 +420,18 @@ export default function PDFPage({
       startX: sigX,
       startY: sigY,
     };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
+  }, [setActiveSignature, setActiveItem, setActiveRedaction, setActiveStamp]);
 
-  const handleSignatureResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
+  const handleSigResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveSignature(id);
+    setActiveItem(null);
+    setActiveRedaction(null);
+    setActiveStamp(null);
+
     setResizingSigId(id);
     setSigDimensions({ w, h });
     resizeSigStartRef.current = {
@@ -274,18 +439,20 @@ export default function PDFPage({
       pointerY: e.clientY,
       startW: w,
       startH: h,
-      ratio: w / h,
+      ratio: w / (h || 1),
     };
-  }, [setActiveSignature]);
+  }, [setActiveSignature, setActiveItem, setActiveRedaction, setActiveStamp]);
 
   const handleStampDragStart = useCallback((id: string, stampX: number, stampY: number, e: React.PointerEvent) => {
-    e.preventDefault();
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveStamp(id);
     setActiveItem(null);
     setActiveRedaction(null);
     setActiveSignature(null);
+
     setDraggingStampId(id);
     setDragStampPosition({ x: stampX, y: stampY });
     dragStampStartRef.current = {
@@ -294,13 +461,18 @@ export default function PDFPage({
       startX: stampX,
       startY: stampY,
     };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
+  }, [setActiveStamp, setActiveItem, setActiveRedaction, setActiveSignature]);
 
   const handleStampResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
     e.stopPropagation();
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
     setActiveStamp(id);
+    setActiveItem(null);
+    setActiveRedaction(null);
+    setActiveSignature(null);
+
     setResizingStampId(id);
     setStampDimensions({ w, h });
     resizeStampStartRef.current = {
@@ -308,179 +480,180 @@ export default function PDFPage({
       pointerY: e.clientY,
       startW: w,
       startH: h,
-      ratio: w / h,
+      ratio: w / (h || 1),
     };
-  }, [setActiveStamp]);
+  }, [setActiveStamp, setActiveItem, setActiveRedaction, setActiveSignature]);
 
-  // ── Global Pointer Event Listeners for Page Drag Operations ─────────────────
-  useEffect(() => {
-    const handlePointerMove = (e: PointerEvent) => {
-      // 1. Text item dragging
-      if (draggingId && dragStartRef.current) {
-        const start = dragStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const item = textItems.find(i => i.id === draggingId);
-        if (item) {
-          const newX = Math.max(0, Math.min(pageWidth - item.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(pageHeight - item.height, start.startY + deltaY));
-          setDragPosition({ x: newX, y: newY });
-        }
-      }
+  // Pointer Move Listener for Active Page
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // 1. Dragging Text Item
+    if (draggingId && dragStartRef.current) {
+      const dx = e.clientX - dragStartRef.current.pointerX;
+      const dy = e.clientY - dragStartRef.current.pointerY;
+      const newX = Math.max(0, Math.min(pageWidth - 20, dragStartRef.current.startX + dx));
+      const newY = Math.max(0, Math.min(pageHeight - 20, dragStartRef.current.startY + dy));
+      setDragPosition({ x: newX, y: newY });
+    }
 
-      // 2. Redaction box dragging
-      if (draggingRedactId && dragRedactStartRef.current) {
-        const start = dragRedactStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const box = redactions.find(b => b.id === draggingRedactId);
-        if (box) {
-          const newX = Math.max(0, Math.min(pageWidth - box.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(pageHeight - box.height, start.startY + deltaY));
-          setDragRedactPosition({ x: newX, y: newY });
-        }
-      }
+    // 2. Dragging Redaction Box
+    if (draggingRedactId && dragRedactStartRef.current) {
+      const dx = e.clientX - dragRedactStartRef.current.pointerX;
+      const dy = e.clientY - dragRedactStartRef.current.pointerY;
+      const newX = Math.max(0, Math.min(pageWidth - 20, dragRedactStartRef.current.startX + dx));
+      const newY = Math.max(0, Math.min(pageHeight - 20, dragRedactStartRef.current.startY + dy));
+      setDragRedactPosition({ x: newX, y: newY });
+    }
 
-      // 3. Redaction box resizing
-      if (resizingRedactId && resizeRedactStartRef.current) {
-        const start = resizeRedactStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const newW = Math.max(10, Math.min(pageWidth, start.startW + deltaX));
-        const newH = Math.max(8, Math.min(pageHeight, start.startH + deltaY));
-        setRedactDimensions({ w: newW, h: newH });
-      }
+    // 3. Resizing Redaction Box
+    if (resizingRedactId && resizeRedactStartRef.current) {
+      const dx = e.clientX - resizeRedactStartRef.current.pointerX;
+      const dy = e.clientY - resizeRedactStartRef.current.pointerY;
+      const newW = Math.max(15, resizeRedactStartRef.current.startW + dx);
+      const newH = Math.max(10, resizeRedactStartRef.current.startH + dy);
+      setRedactDimensions({ w: newW, h: newH });
+    }
 
-      // 4. Signature dragging
-      if (draggingSigId && dragSigStartRef.current) {
-        const start = dragSigStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const sig = signatures.find(s => s.id === draggingSigId);
-        if (sig) {
-          const newX = Math.max(0, Math.min(pageWidth - sig.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(pageHeight - sig.height, start.startY + deltaY));
-          setDragSigPosition({ x: newX, y: newY });
-        }
-      }
+    // 4. Dragging Signature
+    if (draggingSigId && dragSigStartRef.current) {
+      const dx = e.clientX - dragSigStartRef.current.pointerX;
+      const dy = e.clientY - dragSigStartRef.current.pointerY;
+      const newX = Math.max(0, Math.min(pageWidth - 30, dragSigStartRef.current.startX + dx));
+      const newY = Math.max(0, Math.min(pageHeight - 30, dragSigStartRef.current.startY + dy));
+      setDragSigPosition({ x: newX, y: newY });
+    }
 
-      // 5. Signature resizing (aspect ratio locked)
-      if (resizingSigId && resizeSigStartRef.current) {
-        const start = resizeSigStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const newW = Math.max(20, Math.min(pageWidth, start.startW + deltaX));
-        const newH = Math.max(10, Math.round(newW / start.ratio));
-        setSigDimensions({ w: newW, h: newH });
-      }
+    // 5. Resizing Signature (Aspect ratio locked)
+    if (resizingSigId && resizeSigStartRef.current) {
+      const dx = e.clientX - resizeSigStartRef.current.pointerX;
+      const newW = Math.max(40, resizeSigStartRef.current.startW + dx);
+      const newH = Math.max(20, newW / resizeSigStartRef.current.ratio);
+      setSigDimensions({ w: newW, h: newH });
+    }
 
-      // 6. Stamp dragging
-      if (draggingStampId && dragStampStartRef.current) {
-        const start = dragStampStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const stamp = stamps.find(st => st.id === draggingStampId);
-        if (stamp) {
-          const newX = Math.max(0, Math.min(pageWidth - stamp.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(pageHeight - stamp.height, start.startY + deltaY));
-          setDragStampPosition({ x: newX, y: newY });
-        }
-      }
+    // 6. Dragging Stamp
+    if (draggingStampId && dragStampStartRef.current) {
+      const dx = e.clientX - dragStampStartRef.current.pointerX;
+      const dy = e.clientY - dragStampStartRef.current.pointerY;
+      const newX = Math.max(0, Math.min(pageWidth - 30, dragStampStartRef.current.startX + dx));
+      const newY = Math.max(0, Math.min(pageHeight - 30, dragStampStartRef.current.startY + dy));
+      setDragStampPosition({ x: newX, y: newY });
+    }
 
-      // 7. Stamp resizing
-      if (resizingStampId && resizeStampStartRef.current) {
-        const start = resizeStampStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const newW = Math.max(20, Math.min(pageWidth, start.startW + deltaX));
-        const newH = Math.max(10, Math.round(newW / start.ratio));
-        setStampDimensions({ w: newW, h: newH });
-      }
-    };
+    // 7. Resizing Stamp
+    if (resizingStampId && resizeStampStartRef.current) {
+      const dx = e.clientX - resizeStampStartRef.current.pointerX;
+      const newW = Math.max(30, resizeStampStartRef.current.startW + dx);
+      const newH = Math.max(20, newW / resizeStampStartRef.current.ratio);
+      setStampDimensions({ w: newW, h: newH });
+    }
+  }, [draggingId, draggingRedactId, resizingRedactId, draggingSigId, resizingSigId, draggingStampId, resizingStampId, pageWidth, pageHeight]);
 
-    const handlePointerUp = () => {
-      if (draggingId && dragPosition) {
-        updatePosition(draggingId, dragPosition.x, dragPosition.y);
-      }
-      if (draggingRedactId && dragRedactPosition) {
-        updateRedactionBox(draggingRedactId, { x: dragRedactPosition.x, y: dragRedactPosition.y });
-      }
-      if (resizingRedactId && redactDimensions) {
-        updateRedactionBox(resizingRedactId, { width: redactDimensions.w, height: redactDimensions.h });
-      }
-      if (draggingSigId && dragSigPosition) {
-        updateSignature(draggingSigId, { x: dragSigPosition.x, y: dragSigPosition.y });
-      }
-      if (resizingSigId && sigDimensions) {
-        updateSignature(resizingSigId, { width: sigDimensions.w, height: sigDimensions.h });
-      }
-      if (draggingStampId && dragStampPosition) {
-        updateStamp(draggingStampId, { x: dragStampPosition.x, y: dragStampPosition.y });
-      }
-      if (resizingStampId && stampDimensions) {
-        updateStamp(resizingStampId, { width: stampDimensions.w, height: stampDimensions.h });
-      }
-
+  // Pointer Up Listener for Active Page
+  const handlePointerUp = useCallback(() => {
+    // 1. Commit Dragged Text
+    if (draggingId && dragPosition) {
+      updatePosition(draggingId, dragPosition.x, dragPosition.y);
       setDraggingId(null);
       setDragPosition(null);
       dragStartRef.current = null;
+    }
 
+    // 2. Commit Dragged Redaction Box
+    if (draggingRedactId && dragRedactPosition) {
+      updateRedactionBox(draggingRedactId, {
+        x: dragRedactPosition.x,
+        y: dragRedactPosition.y,
+      });
       setDraggingRedactId(null);
       setDragRedactPosition(null);
       dragRedactStartRef.current = null;
+    }
 
+    // 3. Commit Resized Redaction Box
+    if (resizingRedactId && redactDimensions) {
+      updateRedactionBox(resizingRedactId, {
+        width: redactDimensions.w,
+        height: redactDimensions.h,
+      });
       setResizingRedactId(null);
       setRedactDimensions(null);
       resizeRedactStartRef.current = null;
+    }
 
+    // 4. Commit Dragged Signature
+    if (draggingSigId && dragSigPosition) {
+      updateSignature(draggingSigId, {
+        x: dragSigPosition.x,
+        y: dragSigPosition.y,
+      });
       setDraggingSigId(null);
       setDragSigPosition(null);
       dragSigStartRef.current = null;
+    }
 
+    // 5. Commit Resized Signature
+    if (resizingSigId && sigDimensions) {
+      updateSignature(resizingSigId, {
+        width: sigDimensions.w,
+        height: sigDimensions.h,
+      });
       setResizingSigId(null);
       setSigDimensions(null);
       resizeSigStartRef.current = null;
+    }
 
+    // 6. Commit Dragged Stamp
+    if (draggingStampId && dragStampPosition) {
+      updateStamp(draggingStampId, {
+        x: dragStampPosition.x,
+        y: dragStampPosition.y,
+      });
       setDraggingStampId(null);
       setDragStampPosition(null);
       dragStampStartRef.current = null;
+    }
 
+    // 7. Commit Resized Stamp
+    if (resizingStampId && stampDimensions) {
+      updateStamp(resizingStampId, {
+        width: stampDimensions.w,
+        height: stampDimensions.h,
+      });
       setResizingStampId(null);
       setStampDimensions(null);
       resizeStampStartRef.current = null;
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
+    }
   }, [
-    draggingId, dragPosition, textItems, updatePosition, pageWidth, pageHeight,
-    draggingRedactId, dragRedactPosition, resizingRedactId, redactDimensions, redactions, updateRedactionBox,
-    draggingSigId, dragSigPosition, resizingSigId, sigDimensions, signatures, updateSignature,
-    draggingStampId, dragStampPosition, resizingStampId, stampDimensions, stamps, updateStamp,
+    draggingId, dragPosition, updatePosition,
+    draggingRedactId, dragRedactPosition, updateRedactionBox,
+    resizingRedactId, redactDimensions,
+    draggingSigId, dragSigPosition, updateSignature,
+    resizingSigId, sigDimensions,
+    draggingStampId, dragStampPosition, updateStamp,
+    resizingStampId, stampDimensions
   ]);
 
-  // ── Drawing Redactions on this Page ─────────────────────────────────────────
+  // Handle Text Click with Character Index Calculation
+  const handleTextItemClick = useCallback((id: string, e: React.MouseEvent) => {
+    const targetEl = e.currentTarget as HTMLElement;
+    const rect = targetEl.getBoundingClientRect();
+    const clickOffsetX = Math.max(0, e.clientX - rect.left);
+    const charRatio = Math.max(0, Math.min(1, clickOffsetX / (rect.width || 1)));
+    const itemVal = editValues[id] ?? textItems.find(it => it.id === id)?.editedText ?? '';
+    const estimatedIndex = Math.round(charRatio * itemVal.length);
+    setInitialCaretPos(estimatedIndex);
+    onItemClick(id, e);
+  }, [editValues, textItems, onItemClick]);
+
+  // ── Pointer Drawing for Redactions (Blackout & Whiteout) ────────────────────
   const handlePagePointerDown = (e: React.PointerEvent) => {
-    if (activeTool !== 'blackout' && activeTool !== 'whiteout') {
-      if (activeTool === 'select') {
-        setActiveItem(null);
-        setActiveRedaction(null);
-        setActiveSignature(null);
-        setActiveStamp(null);
-      }
-      return;
-    }
+    if (activeTool !== 'blackout' && activeTool !== 'whiteout') return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
 
-    const wrapper = containerRef.current;
-    if (!wrapper) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch {}
-    const rect = wrapper.getBoundingClientRect();
     const x = Math.max(0, Math.min(pageWidth, e.clientX - rect.left));
     const y = Math.max(0, Math.min(pageHeight, e.clientY - rect.top));
 
@@ -490,45 +663,43 @@ export default function PDFPage({
   };
 
   const handlePagePointerMove = (e: React.PointerEvent) => {
-    if (!isDrawingRedaction || !drawStart) return;
+    if (isDrawingRedaction && drawStart && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const currentX = Math.max(0, Math.min(pageWidth, e.clientX - rect.left));
+      const currentY = Math.max(0, Math.min(pageHeight, e.clientY - rect.top));
 
-    const wrapper = containerRef.current;
-    if (!wrapper) return;
+      const x = Math.min(drawStart.x, currentX);
+      const y = Math.min(drawStart.y, currentY);
+      const w = Math.abs(currentX - drawStart.x);
+      const h = Math.abs(currentY - drawStart.y);
 
-    const rect = wrapper.getBoundingClientRect();
-    const currentX = Math.max(0, Math.min(pageWidth, e.clientX - rect.left));
-    const currentY = Math.max(0, Math.min(pageHeight, e.clientY - rect.top));
+      setCurrentRect({ x, y, w, h });
+      return;
+    }
 
-    const x = Math.min(drawStart.x, currentX);
-    const y = Math.min(drawStart.y, currentY);
-    const w = Math.abs(currentX - drawStart.x);
-    const h = Math.abs(currentY - drawStart.y);
-
-    setCurrentRect({ x, y, w, h });
+    handlePointerMove(e);
   };
 
   const handlePagePointerUp = () => {
-    if (!isDrawingRedaction || !currentRect) {
+    if (isDrawingRedaction && currentRect) {
+      if (currentRect.w > 4 && currentRect.h > 4) {
+        addRedactionBox({
+          x: currentRect.x,
+          y: currentRect.y,
+          width: currentRect.w,
+          height: currentRect.h,
+          type: activeTool === 'whiteout' ? 'whiteout' : 'blackout',
+          pageIndex: pageNumber,
+        });
+      }
+
       setIsDrawingRedaction(false);
       setDrawStart(null);
       setCurrentRect(null);
       return;
     }
 
-    if (currentRect.w > 4 && currentRect.h > 4) {
-      addRedactionBox({
-        x: currentRect.x,
-        y: currentRect.y,
-        width: currentRect.w,
-        height: currentRect.h,
-        type: activeTool === 'whiteout' ? 'whiteout' : 'blackout',
-        pageIndex: pageNumber,
-      });
-    }
-
-    setIsDrawingRedaction(false);
-    setDrawStart(null);
-    setCurrentRect(null);
+    handlePointerUp();
   };
 
   // Find & Replace matches on this page
@@ -599,11 +770,11 @@ export default function PDFPage({
             borderRadius: '50%',
             animation: 'spin-slow 0.8s linear infinite',
           }} />
-          <span style={{ fontWeight: 600 }}>Page {pageNumber}</span>
+          <span>Page {pageNumber}</span>
         </div>
       )}
 
-      {/* 3. Error Fallback */}
+      {/* 3. Render Error notice */}
       {renderError && (
         <div style={{
           width: '100%',
@@ -619,12 +790,14 @@ export default function PDFPage({
         </div>
       )}
 
-      {/* 4. White cover-up boxes for deleted or moved text items */}
+      {/* 4. Whiteout Cover-ups for Moved / Deleted Text */}
       {textItems.map(item => {
-        if (item.isAdded) return null;
-        const hasPosChange = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
-        const isDeleted = !!item.isDeleted;
-        if (!isDeleted && !hasPosChange) return null;
+        const isMoved = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
+        const currentVal = editValues[item.id] ?? item.editedText;
+        const isEdited = currentVal !== item.originalText;
+        const shouldCover = (item.isDeleted || isMoved || isEdited) && !item.isAdded;
+
+        if (!shouldCover) return null;
 
         return (
           <div
@@ -633,116 +806,103 @@ export default function PDFPage({
               position: 'absolute',
               left: item.originalX - 1,
               top: item.originalY - 1,
-              width: item.width + 2,
+              width: item.width + 3,
               height: item.height + 2,
-              background: '#ffffff',
+              backgroundColor: '#ffffff',
               pointerEvents: 'none',
-              zIndex: 2,
+              zIndex: 3,
             }}
           />
         );
       })}
 
-      {/* 5. Redaction Boxes (Blackout & Whiteout) */}
+      {/* 5. Permanent Blackout and Whiteout Redaction Boxes */}
       {redactions.map(box => {
         const isSelected = activeRedactionId === box.id;
-        const isCurrentDragging = draggingRedactId === box.id;
-        const boxX = isCurrentDragging && dragRedactPosition ? dragRedactPosition.x : box.x;
-        const boxY = isCurrentDragging && dragRedactPosition ? dragRedactPosition.y : box.y;
+        const isBeingDragged = draggingRedactId === box.id;
+        const isBeingResized = resizingRedactId === box.id;
 
-        const isCurrentResizing = resizingRedactId === box.id;
-        const boxW = isCurrentResizing && redactDimensions ? redactDimensions.w : box.width;
-        const boxH = isCurrentResizing && redactDimensions ? redactDimensions.h : box.height;
+        const currentX = isBeingDragged && dragRedactPosition ? dragRedactPosition.x : box.x;
+        const currentY = isBeingDragged && dragRedactPosition ? dragRedactPosition.y : box.y;
+        const currentW = isBeingResized && redactDimensions ? redactDimensions.w : box.width;
+        const currentH = isBeingResized && redactDimensions ? redactDimensions.h : box.height;
 
         return (
           <div
             key={box.id}
-            onPointerDown={e => {
-              e.stopPropagation();
-              handleRedactionDragStart(box.id, box.x, box.y, e);
+            onPointerDown={e => handleRedactDragStart(box.id, box.x, box.y, e)}
+            style={{
+              position: 'absolute',
+              left: currentX,
+              top: currentY,
+              width: currentW,
+              height: currentH,
+              backgroundColor: box.type === 'whiteout' ? '#ffffff' : '#000000',
+              border: isSelected ? '2px solid #4d6bfa' : box.type === 'whiteout' ? '1px dashed #cbd5e1' : 'none',
+              cursor: 'move',
+              zIndex: 20,
+              boxShadow: isSelected ? '0 0 0 3px rgba(77,107,250,0.3)' : 'none',
+              boxSizing: 'border-box',
+              touchAction: 'none',
             }}
             onClick={e => {
               e.stopPropagation();
+              setActiveRedaction(box.id);
               setActiveItem(null);
               setActiveSignature(null);
               setActiveStamp(null);
-              setActiveRedaction(box.id);
-            }}
-            style={{
-              position: 'absolute',
-              left: boxX,
-              top: boxY,
-              width: boxW,
-              height: boxH,
-              background: box.type === 'blackout' ? '#000000' : '#ffffff',
-              border: isSelected
-                ? '2px solid #ef4444'
-                : box.type === 'whiteout'
-                ? '1px dashed rgba(77,107,250,0.5)'
-                : '1px solid rgba(255,255,255,0.2)',
-              boxShadow: isSelected ? '0 0 10px rgba(239,68,68,0.6)' : 'none',
-              zIndex: 15,
-              cursor: 'grab',
-              touchAction: 'none',
             }}
           >
             {isSelected && (
-              <button
-                onPointerDown={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
-                onClick={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  deleteRedactionBox(box.id);
-                  setActiveRedaction(null);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: -12,
-                  right: -12,
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  background: '#ef4444',
-                  color: '#fff',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-                  zIndex: 30,
-                }}
-                title={`Delete ${box.type === 'blackout' ? 'Blackout' : 'Whiteout'} Redaction`}
-              >
-                <Trash2 size={12} />
-              </button>
-            )}
+              <>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    deleteRedactionBox(box.id);
+                    setActiveRedaction(null);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: -12,
+                    right: -12,
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#ef4444',
+                    border: '2px solid #fff',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    zIndex: 30,
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    padding: 0,
+                  }}
+                  title="Delete redaction box (Delete / Backspace)"
+                >
+                  <Trash2 size={11} />
+                </button>
 
-            {isSelected && (
-              <div
-                onPointerDown={e => {
-                  e.stopPropagation();
-                  handleRedactionResizeStart(box.id, box.width, box.height, e);
-                }}
-                style={{
-                  position: 'absolute',
-                  bottom: -5,
-                  right: -5,
-                  width: 12,
-                  height: 12,
-                  borderRadius: '50%',
-                  background: box.type === 'blackout' ? '#ef4444' : '#4d6bfa',
-                  border: '2px solid #fff',
-                  cursor: 'nwse-resize',
-                  zIndex: 30,
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
-                  touchAction: 'none',
-                }}
-                title="Drag to resize redaction area"
-              />
+                <div
+                  onPointerDown={e => handleRedactResizeStart(box.id, box.width, box.height, e)}
+                  style={{
+                    position: 'absolute',
+                    bottom: -5,
+                    right: -5,
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    background: '#4d6bfa',
+                    border: '2px solid #fff',
+                    cursor: 'nwse-resize',
+                    zIndex: 30,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                    touchAction: 'none',
+                  }}
+                  title="Drag to resize redaction box"
+                />
+              </>
             )}
           </div>
         );
@@ -751,40 +911,37 @@ export default function PDFPage({
       {/* 6. Digital Signatures */}
       {signatures.map(sig => {
         const isSelected = activeSignatureId === sig.id;
-        const isCurrentDragging = draggingSigId === sig.id;
-        const sigX = isCurrentDragging && dragSigPosition ? dragSigPosition.x : sig.x;
-        const sigY = isCurrentDragging && dragSigPosition ? dragSigPosition.y : sig.y;
+        const isBeingDragged = draggingSigId === sig.id;
+        const isBeingResized = resizingSigId === sig.id;
 
-        const isCurrentResizing = resizingSigId === sig.id;
-        const sigW = isCurrentResizing && sigDimensions ? sigDimensions.w : sig.width;
-        const sigH = isCurrentResizing && sigDimensions ? sigDimensions.h : sig.height;
+        const currentX = isBeingDragged && dragSigPosition ? dragSigPosition.x : sig.x;
+        const currentY = isBeingDragged && dragSigPosition ? dragSigPosition.y : sig.y;
+        const currentW = isBeingResized && sigDimensions ? sigDimensions.w : sig.width;
+        const currentH = isBeingResized && sigDimensions ? sigDimensions.h : sig.height;
 
         return (
           <div
             key={sig.id}
+            onPointerDown={e => handleSigDragStart(sig.id, sig.x, sig.y, e)}
+            style={{
+              position: 'absolute',
+              left: currentX,
+              top: currentY,
+              width: currentW,
+              height: currentH,
+              cursor: 'move',
+              zIndex: 22,
+              border: isSelected ? '2px solid #4d6bfa' : '1px dashed transparent',
+              boxShadow: isSelected ? '0 0 0 3px rgba(77,107,250,0.3)' : 'none',
+              boxSizing: 'border-box',
+              touchAction: 'none',
+            }}
             onClick={e => {
               e.stopPropagation();
+              setActiveSignature(sig.id);
               setActiveItem(null);
               setActiveRedaction(null);
               setActiveStamp(null);
-              setActiveSignature(sig.id);
-            }}
-            onPointerDown={e => handleSignatureDragStart(sig.id, sig.x, sig.y, e)}
-            style={{
-              position: 'absolute',
-              left: sigX,
-              top: sigY,
-              width: sigW,
-              height: sigH,
-              border: isSelected ? '2px dashed #4d6bfa' : '1px solid transparent',
-              borderRadius: 4,
-              boxShadow: isSelected ? '0 0 10px rgba(77,107,250,0.4)' : 'none',
-              zIndex: 20,
-              cursor: 'grab',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              touchAction: 'none',
             }}
           >
             <img
@@ -797,62 +954,59 @@ export default function PDFPage({
                 pointerEvents: 'none',
                 userSelect: 'none',
               }}
+              draggable={false}
             />
 
             {isSelected && (
-              <button
-                onPointerDown={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
-                onClick={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  deleteSignature(sig.id);
-                  setActiveSignature(null);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: -12,
-                  right: -12,
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  background: '#ef4444',
-                  color: '#fff',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                  zIndex: 30,
-                }}
-                title="Remove signature"
-              >
-                <Trash2 size={12} />
-              </button>
-            )}
+              <>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    deleteSignature(sig.id);
+                    setActiveSignature(null);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: -12,
+                    right: -12,
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#ef4444',
+                    border: '2px solid #fff',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    zIndex: 30,
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    padding: 0,
+                  }}
+                  title="Delete signature"
+                >
+                  <Trash2 size={11} />
+                </button>
 
-            {isSelected && (
-              <div
-                onPointerDown={e => handleSignatureResizeStart(sig.id, sig.width, sig.height, e)}
-                style={{
-                  position: 'absolute',
-                  bottom: -6,
-                  right: -6,
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
-                  background: '#4d6bfa',
-                  border: '2px solid #fff',
-                  cursor: 'nwse-resize',
-                  zIndex: 30,
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                  touchAction: 'none',
-                }}
-                title="Drag to resize signature"
-              />
+                <div
+                  onPointerDown={e => handleSigResizeStart(sig.id, sig.width, sig.height, e)}
+                  style={{
+                    position: 'absolute',
+                    bottom: -6,
+                    right: -6,
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: '#4d6bfa',
+                    border: '2px solid #fff',
+                    cursor: 'nwse-resize',
+                    zIndex: 30,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                    touchAction: 'none',
+                  }}
+                  title="Drag to resize signature"
+                />
+              </>
             )}
           </div>
         );
@@ -861,47 +1015,45 @@ export default function PDFPage({
       {/* 7. Official Stamps & Custom Images */}
       {stamps.map(stamp => {
         const isSelected = activeStampId === stamp.id;
-        const isCurrentDragging = draggingStampId === stamp.id;
-        const stX = isCurrentDragging && dragStampPosition ? dragStampPosition.x : stamp.x;
-        const stY = isCurrentDragging && dragStampPosition ? dragStampPosition.y : stamp.y;
+        const isBeingDragged = draggingStampId === stamp.id;
+        const isBeingResized = resizingStampId === stamp.id;
 
-        const isCurrentResizing = resizingStampId === stamp.id;
-        const stW = isCurrentResizing && stampDimensions ? stampDimensions.w : stamp.width;
-        const stH = isCurrentResizing && stampDimensions ? stampDimensions.h : stamp.height;
+        const currentX = isBeingDragged && dragStampPosition ? dragStampPosition.x : stamp.x;
+        const currentY = isBeingDragged && dragStampPosition ? dragStampPosition.y : stamp.y;
+        const currentW = isBeingResized && stampDimensions ? stampDimensions.w : stamp.width;
+        const currentH = isBeingResized && stampDimensions ? stampDimensions.h : stamp.height;
 
         return (
           <div
             key={stamp.id}
-            onClick={e => {
-              e.stopPropagation();
-              setActiveItem(null);
-              setActiveRedaction(null);
-              setActiveSignature(null);
-              setActiveStamp(stamp.id);
-            }}
             onPointerDown={e => handleStampDragStart(stamp.id, stamp.x, stamp.y, e)}
             style={{
               position: 'absolute',
-              left: stX,
-              top: stY,
-              width: stW,
-              height: stH,
-              transform: `rotate(${stamp.rotation}deg)`,
-              opacity: stamp.opacity,
-              border: isSelected ? '2px dashed #4ade80' : '1px solid transparent',
-              borderRadius: 6,
-              boxShadow: isSelected ? '0 0 12px rgba(74,222,128,0.4)' : 'none',
+              left: currentX,
+              top: currentY,
+              width: currentW,
+              height: currentH,
+              cursor: 'move',
               zIndex: 22,
-              cursor: 'grab',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              border: isSelected ? '2px solid #4ade80' : '1px dashed transparent',
+              boxShadow: isSelected ? '0 0 0 3px rgba(74,222,128,0.3)' : 'none',
+              boxSizing: 'border-box',
+              opacity: stamp.opacity,
+              transform: `rotate(${stamp.rotation}deg)`,
+              transformOrigin: 'center center',
               touchAction: 'none',
+            }}
+            onClick={e => {
+              e.stopPropagation();
+              setActiveStamp(stamp.id);
+              setActiveItem(null);
+              setActiveRedaction(null);
+              setActiveSignature(null);
             }}
           >
             <img
               src={stamp.dataUrl}
-              alt={stamp.label || 'Stamp'}
+              alt={stamp.label || 'PDF Stamp'}
               style={{
                 width: '100%',
                 height: '100%',
@@ -909,17 +1061,13 @@ export default function PDFPage({
                 pointerEvents: 'none',
                 userSelect: 'none',
               }}
+              draggable={false}
             />
 
             {isSelected && (
               <button
-                onPointerDown={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
                 onClick={e => {
                   e.stopPropagation();
-                  e.preventDefault();
                   deleteStamp(stamp.id);
                   setActiveStamp(null);
                 }}
@@ -927,55 +1075,50 @@ export default function PDFPage({
                   position: 'absolute',
                   top: -12,
                   right: -12,
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   borderRadius: '50%',
                   background: '#ef4444',
+                  border: '2px solid #fff',
                   color: '#fff',
-                  border: 'none',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                   zIndex: 30,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                  padding: 0,
                 }}
-                title="Remove stamp"
+                title="Delete stamp"
               >
-                <Trash2 size={12} />
+                <Trash2 size={11} />
               </button>
             )}
 
             {isSelected && (
               <button
-                onPointerDown={e => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
                 onClick={e => {
                   e.stopPropagation();
-                  e.preventDefault();
-                  const ROTATION_STEPS = [-15, 0, 15, 45, 90, -90];
-                  const currentIndex = ROTATION_STEPS.indexOf(stamp.rotation);
-                  const nextRotation = ROTATION_STEPS[(currentIndex + 1) % ROTATION_STEPS.length] ?? 0;
-                  updateStamp(stamp.id, { rotation: nextRotation });
+                  const nextAngle = ((stamp.rotation + 45) % 360);
+                  updateStamp(stamp.id, { rotation: nextAngle });
                 }}
                 style={{
                   position: 'absolute',
                   top: -12,
                   left: -12,
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
                   borderRadius: '50%',
                   background: '#4d6bfa',
+                  border: '2px solid #fff',
                   color: '#fff',
-                  border: 'none',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                   zIndex: 30,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                  padding: 0,
                 }}
                 title="Click to cycle rotation angle"
               >
@@ -1048,6 +1191,10 @@ export default function PDFPage({
         const currentMatch = matches[currentMatchIndex];
         const isCurrentMatch = currentMatch?.itemId === item.id && currentMatch?.pageNumber === pageNumber;
 
+        // Constrain available width on page to guarantee zero horizontal layout shift / overflow
+        const availableWidth = Math.max(80, pageWidth - itemX - 16);
+        const activeContainerWidth = Math.min(Math.max(item.width, 80), availableWidth);
+
         return (
           <div
             key={item.id}
@@ -1055,12 +1202,13 @@ export default function PDFPage({
             style={{
               left: itemX,
               top: itemY,
-              minWidth: item.width,
-              width: hasChanges || isActive ? 'max-content' : item.width,
+              minWidth: isActive ? `${activeContainerWidth}px` : `${item.width}px`,
+              maxWidth: isActive ? `${availableWidth}px` : undefined,
+              width: isActive ? `${activeContainerWidth}px` : (hasChanges ? 'max-content' : `${item.width}px`),
               minHeight: item.height,
-              height: item.height,
+              height: isActive ? 'auto' : item.height,
               fontSize: item.fontSize + item.format.fontSizeDelta,
-              lineHeight: 1,
+              lineHeight: 1.2,
               background: isActive
                 ? '#ffffff'
                 : isCurrentMatch
@@ -1077,77 +1225,22 @@ export default function PDFPage({
               overflow: 'visible',
               zIndex: isCurrentMatch ? 12 : hasChanges || isActive ? 10 : 1,
             }}
-            onClick={e => onItemClick(item.id, e)}
+            onClick={e => handleTextItemClick(item.id, e)}
             title={hasChanges ? `Edited — click to re-edit` : 'Click to edit'}
           >
             {isActive ? (
-              <>
-                <div
-                  className="drag-handle"
-                  onPointerDown={e => handleDragPointerDown(item.id, item.x, item.y, e)}
-                  style={{
-                    position: 'absolute',
-                    left: -20,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    cursor: 'grab',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '2px',
-                    color: '#4d6bfa',
-                    zIndex: 100,
-                    touchAction: 'none',
-                  }}
-                  title="Drag to reposition text"
-                >
-                  <GripVertical size={14} />
-                </div>
-
-                {(() => {
-                  const toolbarWidth = 380;
-                  const preferredLeftAbs = itemX + item.width / 2 - toolbarWidth / 2;
-                  const clampedLeftAbs = Math.max(10, Math.min(pageWidth - toolbarWidth - 10, preferredLeftAbs));
-                  const toolbarLeftRel = clampedLeftAbs - itemX;
-
-                  return (
-                    <TextFormatToolbar
-                      item={item}
-                      onUpdateFormat={updateFormat}
-                      onDelete={deleteItem}
-                      style={{
-                        left: `${toolbarLeftRel}px`,
-                        transform: 'none',
-                      }}
-                    />
-                  );
-                })()}
-
-                <input
-                  type="text"
-                  className="text-overlay-input"
-                  value={currentVal}
-                  autoFocus
-                  style={{
-                    fontSize: item.fontSize + item.format.fontSizeDelta,
-                    fontWeight: item.format.bold ? 700 : 400,
-                    fontStyle: item.format.italic ? 'italic' : 'normal',
-                    textDecoration: item.format.underline ? 'underline' : 'none',
-                    fontFamily: item.format.fontFamily === 'times'
-                      ? 'Times New Roman, serif'
-                      : item.format.fontFamily === 'courier'
-                      ? 'Courier New, monospace'
-                      : 'Helvetica, Arial, sans-serif',
-                    color: item.format.color,
-                  }}
-                  onChange={e => onItemTextChange(item.id, e.target.value)}
-                  onBlur={() => onItemBlur(item.id)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === 'Escape') {
-                      onItemBlur(item.id);
-                    }
-                  }}
-                />
-              </>
+              <ActiveTextOverlayEditor
+                item={item}
+                currentVal={currentVal}
+                itemX={itemX}
+                pageWidth={pageWidth}
+                initialCaretIndex={initialCaretPos}
+                onItemTextChange={onItemTextChange}
+                onItemBlur={onItemBlur}
+                updateFormat={updateFormat}
+                deleteItem={deleteItem}
+                handleDragPointerDown={handleDragPointerDown}
+              />
             ) : (
               <span
                 style={{
