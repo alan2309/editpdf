@@ -61,6 +61,7 @@ export function usePDFEditor() {
     totalPages: 0,
     currentPage: 1,
     scale: DEFAULT_SCALE,
+    pageDimensions: {},
     textItems: [],
     pageItems: {},
     redactions: {},
@@ -84,8 +85,7 @@ export function usePDFEditor() {
 
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const rawBytesRef = useRef<ArrayBuffer | null>(null);
-  const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
-  const currentRenderIdRef = useRef<number>(0);
+  const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
 
   // Active text editing transaction tracking (to prevent keystrokes from flooding undo history)
   const editingPreValueRef = useRef<{ id: string; originalValue: string } | null>(null);
@@ -205,10 +205,8 @@ export function usePDFEditor() {
   // ── Load PDF ──────────────────────────────────────────────────────────────
   const loadPDF = useCallback(async (file: File) => {
     // Clean up previous resources
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
-      renderTaskRef.current = null;
-    }
+    renderTasksRef.current.forEach(t => { try { t.cancel(); } catch {} });
+    renderTasksRef.current.clear();
     if (pdfDocRef.current) {
       try {
         pdfDocRef.current.cleanup();
@@ -266,11 +264,24 @@ export function usePDFEditor() {
       const pdfDoc = await loadingTask.promise;
       pdfDocRef.current = pdfDoc;
 
+      // Extract unscaled viewport dimensions for all pages rapidly
+      const pageDimensions: Record<number, { width: number; height: number; rotation: number }> = {};
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const vp = page.getViewport({ scale: 1 });
+        pageDimensions[i] = {
+          width: vp.width,
+          height: vp.height,
+          rotation: page.rotate || 0,
+        };
+      }
+
       setState(s => ({
         ...s,
         fileName: file.name,
         totalPages: pdfDoc.numPages,
         currentPage: 1,
+        pageDimensions,
         isDirty: false,
         isLoading: false,
       }));
@@ -337,6 +348,15 @@ export function usePDFEditor() {
     return items;
   }, [state.pageItems, state.scale]);
 
+  // ── Cancel Render Task Helper ─────────────────────────────────────────────
+  const cancelPageRender = useCallback((pageNum: number) => {
+    const existing = renderTasksRef.current.get(pageNum);
+    if (existing) {
+      try { existing.cancel(); } catch { /* ignore */ }
+      renderTasksRef.current.delete(pageNum);
+    }
+  }, []);
+
   // ── Render Page ───────────────────────────────────────────────────────────
   const renderPage = useCallback(async (
     canvas: HTMLCanvasElement,
@@ -346,34 +366,30 @@ export function usePDFEditor() {
     const pdfDoc = pdfDocRef.current;
     if (!pdfDoc) return [];
 
-    const renderId = ++currentRenderIdRef.current;
-
-    // Cancel any in-progress render on the same canvas
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
-      renderTaskRef.current = null;
+    // Cancel any in-progress render task for this specific page
+    const existingTask = renderTasksRef.current.get(pageNum);
+    if (existingTask) {
+      try { existingTask.cancel(); } catch { /* ignore */ }
+      renderTasksRef.current.delete(pageNum);
     }
 
     const page = await pdfDoc.getPage(pageNum);
-
-    // Abort if another render request supersedes this one
-    if (renderId !== currentRenderIdRef.current) return [];
-
     const viewport = page.getViewport({ scale });
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d')!;
 
     const task = page.render({ canvasContext: ctx, viewport, canvas });
-    renderTaskRef.current = task;
+    renderTasksRef.current.set(pageNum, task);
 
     try {
       await task.promise;
     } catch (err: unknown) {
+      renderTasksRef.current.delete(pageNum);
       if (err instanceof Error && err.name === 'RenderingCancelledException') return [];
       throw err;
     }
-    renderTaskRef.current = null;
+    renderTasksRef.current.delete(pageNum);
 
     const items: PDFTextItem[] = [];
 
@@ -440,11 +456,8 @@ export function usePDFEditor() {
 
       return {
         ...s,
-        textItems: finalItems,
         pageItems: { ...s.pageItems, [pageNum]: finalItems },
-        currentPage: pageNum,
-        scale,
-        activeItemId: null,
+        textItems: pageNum === s.currentPage ? finalItems : s.textItems,
       };
     });
 
@@ -453,22 +466,37 @@ export function usePDFEditor() {
 
   // ── Transactional Text Editing Handlers ─────────────────────────────────────
   const beginTextEdit = useCallback((id: string) => {
+    for (const items of Object.values(state.pageItems)) {
+      const found = items.find(i => i.id === id);
+      if (found) {
+        editingPreValueRef.current = { id, originalValue: found.editedText };
+        return;
+      }
+    }
     const currentItem = state.textItems.find(i => i.id === id);
     if (currentItem) {
       editingPreValueRef.current = { id, originalValue: currentItem.editedText };
     }
-  }, [state.textItems]);
+  }, [state.pageItems, state.textItems]);
 
   const updateTextWithoutHistory = useCallback((id: string, newText: string) => {
     setState(s => {
-      const updated = s.textItems.map(item =>
+      let targetPage = s.currentPage;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        if (items.some(i => i.id === id)) {
+          targetPage = Number(pStr);
+          break;
+        }
+      }
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, editedText: newText } : item
       );
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
       };
     });
   }, []);
@@ -478,12 +506,15 @@ export function usePDFEditor() {
     editingPreValueRef.current = null;
 
     setState(s => {
-      const currentItem = s.textItems.find(i => i.id === id);
-      if (!currentItem) return s;
+      let targetItem: PDFTextItem | undefined;
+      for (const items of Object.values(s.pageItems)) {
+        targetItem = items.find(i => i.id === id);
+        if (targetItem) break;
+      }
+      if (!targetItem) targetItem = s.textItems.find(i => i.id === id);
+      if (!targetItem) return s;
 
-      // Only push to history if value actually changed from pre-edit state
-      if (!pre || pre.id !== id || pre.originalValue !== currentItem.editedText) {
-        // Construct previous state snapshot with the pre-edit value
+      if (!pre || pre.id !== id || pre.originalValue !== targetItem.editedText) {
         const prevPages: Record<number, PDFTextItem[]> = {};
         for (const [k, items] of Object.entries(s.pageItems)) {
           prevPages[Number(k)] = items.map(item =>
@@ -506,13 +537,21 @@ export function usePDFEditor() {
     if (!pre || pre.id !== id) return;
 
     setState(s => {
-      const updated = s.textItems.map(item =>
+      let targetPage = s.currentPage;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        if (items.some(i => i.id === id)) {
+          targetPage = Number(pStr);
+          break;
+        }
+      }
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, editedText: pre.originalValue } : item
       );
       return {
         ...s,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
       };
     });
   }, []);
@@ -520,18 +559,28 @@ export function usePDFEditor() {
   // ── Standard Update text (Atomic / Programmatic) ───────────────────────────
   const updateText = useCallback((id: string, newText: string) => {
     setState(s => {
-      const target = s.textItems.find(i => i.id === id);
-      if (target && target.editedText === newText) return s;
+      let targetPage = s.currentPage;
+      let targetItem: PDFTextItem | undefined;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        const found = items.find(i => i.id === id);
+        if (found) {
+          targetPage = Number(pStr);
+          targetItem = found;
+          break;
+        }
+      }
+      if (targetItem && targetItem.editedText === newText) return s;
 
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const updated = s.textItems.map(item =>
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, editedText: newText } : item
       );
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
       };
     });
   }, [pushToHistory]);
@@ -539,15 +588,23 @@ export function usePDFEditor() {
   // ── Update format ──────────────────────────────────────────────────────────
   const updateFormat = useCallback((id: string, partial: Partial<TextFormat>) => {
     setState(s => {
+      let targetPage = s.currentPage;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        if (items.some(i => i.id === id)) {
+          targetPage = Number(pStr);
+          break;
+        }
+      }
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const updated = s.textItems.map(item =>
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, format: { ...item.format, ...partial } } : item
       );
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
       };
     });
   }, [pushToHistory]);
@@ -555,18 +612,28 @@ export function usePDFEditor() {
   // ── Update position ────────────────────────────────────────────────────────
   const updatePosition = useCallback((id: string, x: number, y: number) => {
     setState(s => {
-      const target = s.textItems.find(i => i.id === id);
-      if (target && Math.abs(target.x - x) < 0.1 && Math.abs(target.y - y) < 0.1) return s;
+      let targetPage = s.currentPage;
+      let targetItem: PDFTextItem | undefined;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        const found = items.find(i => i.id === id);
+        if (found) {
+          targetPage = Number(pStr);
+          targetItem = found;
+          break;
+        }
+      }
+      if (targetItem && Math.abs(targetItem.x - x) < 0.1 && Math.abs(targetItem.y - y) < 0.1) return s;
 
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const updated = s.textItems.map(item =>
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, x, y } : item
       );
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
       };
     });
   }, [pushToHistory]);
@@ -574,23 +641,32 @@ export function usePDFEditor() {
   // ── Delete item (hides from view + blanks in export) ─────────────────
   const deleteItem = useCallback((id: string) => {
     setState(s => {
+      let targetPage = s.currentPage;
+      for (const [pStr, items] of Object.entries(s.pageItems)) {
+        if (items.some(i => i.id === id)) {
+          targetPage = Number(pStr);
+          break;
+        }
+      }
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const updated = s.textItems.map(item =>
+      const pageList = s.pageItems[targetPage] || [];
+      const updated = pageList.map(item =>
         item.id === id ? { ...item, isDeleted: true } : item
       );
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: targetPage === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [targetPage]: updated },
         activeItemId: s.activeItemId === id ? null : s.activeItemId,
       };
     });
   }, [pushToHistory]);
 
   // ── Add new text field ─────────────────────────────────────────────────────
-  const addTextField = useCallback(() => {
+  const addTextField = useCallback((targetPage?: number) => {
     setState(s => {
+      const pageNum = targetPage || s.currentPage;
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const newId = `added-${Date.now()}`;
       const x = 100;
@@ -598,7 +674,7 @@ export function usePDFEditor() {
 
       const newItem: PDFTextItem = {
         id: newId,
-        pageIndex: s.currentPage - 1,
+        pageIndex: pageNum - 1,
         originalText: '',
         editedText: 'New Text',
         x: x * s.scale,
@@ -614,12 +690,13 @@ export function usePDFEditor() {
         isAdded: true,
       };
 
-      const updated = [...s.textItems, newItem];
+      const pageList = s.pageItems[pageNum] || [];
+      const updated = [...pageList, newItem];
       return {
         ...s,
         isDirty: true,
-        textItems: updated,
-        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+        textItems: pageNum === s.currentPage ? updated : s.textItems,
+        pageItems: { ...s.pageItems, [pageNum]: updated },
         activeItemId: newId,
         activeTool: 'select',
       };
@@ -654,13 +731,14 @@ export function usePDFEditor() {
   const updateRedactionBox = useCallback((id: string, partial: Partial<RedactionBox>) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.redactions[pageNum] || [];
-      const updated = existing.map(b => b.id === id ? { ...b, ...partial } : b);
+      const updatedRedactions: Record<number, RedactionBox[]> = {};
+      for (const [pg, list] of Object.entries(s.redactions)) {
+        updatedRedactions[Number(pg)] = list.map(b => b.id === id ? { ...b, ...partial } : b);
+      }
       return {
         ...s,
         isDirty: true,
-        redactions: { ...s.redactions, [pageNum]: updated },
+        redactions: updatedRedactions,
       };
     });
   }, [pushToHistory]);
@@ -709,13 +787,14 @@ export function usePDFEditor() {
   const updateSignature = useCallback((id: string, partial: Partial<PDFSignatureItem>) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.signatures[pageNum] || [];
-      const updated = existing.map(sig => sig.id === id ? { ...sig, ...partial } : sig);
+      const updatedSignatures: Record<number, PDFSignatureItem[]> = {};
+      for (const [pg, list] of Object.entries(s.signatures)) {
+        updatedSignatures[Number(pg)] = list.map(sig => sig.id === id ? { ...sig, ...partial } : sig);
+      }
       return {
         ...s,
         isDirty: true,
-        signatures: { ...s.signatures, [pageNum]: updated },
+        signatures: updatedSignatures,
       };
     });
   }, [pushToHistory]);
@@ -723,13 +802,14 @@ export function usePDFEditor() {
   const deleteSignature = useCallback((id: string) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.signatures[pageNum] || [];
-      const updated = existing.filter(sig => sig.id !== id);
+      const updatedSignatures: Record<number, PDFSignatureItem[]> = {};
+      for (const [pg, list] of Object.entries(s.signatures)) {
+        updatedSignatures[Number(pg)] = list.filter(sig => sig.id !== id);
+      }
       return {
         ...s,
         isDirty: true,
-        signatures: { ...s.signatures, [pageNum]: updated },
+        signatures: updatedSignatures,
         activeSignatureId: s.activeSignatureId === id ? null : s.activeSignatureId,
       };
     });
@@ -767,13 +847,14 @@ export function usePDFEditor() {
   const updateStamp = useCallback((id: string, partial: Partial<PDFStampItem>) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.stamps[pageNum] || [];
-      const updated = existing.map(st => st.id === id ? { ...st, ...partial } : st);
+      const updatedStamps: Record<number, PDFStampItem[]> = {};
+      for (const [pg, list] of Object.entries(s.stamps)) {
+        updatedStamps[Number(pg)] = list.map(st => st.id === id ? { ...st, ...partial } : st);
+      }
       return {
         ...s,
         isDirty: true,
-        stamps: { ...s.stamps, [pageNum]: updated },
+        stamps: updatedStamps,
       };
     });
   }, [pushToHistory]);
@@ -781,13 +862,14 @@ export function usePDFEditor() {
   const deleteStamp = useCallback((id: string) => {
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
-      const pageNum = s.currentPage;
-      const existing = s.stamps[pageNum] || [];
-      const updated = existing.filter(st => st.id !== id);
+      const updatedStamps: Record<number, PDFStampItem[]> = {};
+      for (const [pg, list] of Object.entries(s.stamps)) {
+        updatedStamps[Number(pg)] = list.filter(st => st.id !== id);
+      }
       return {
         ...s,
         isDirty: true,
-        stamps: { ...s.stamps, [pageNum]: updated },
+        stamps: updatedStamps,
         activeStampId: s.activeStampId === id ? null : s.activeStampId,
       };
     });
@@ -1615,10 +1697,6 @@ export function usePDFEditor() {
   }, [generatePDFBytes, runVerificationAudit, state.exportMode, state.fileName, state.redactions, state.verifyOnExport]);
 
   const resetEditor = useCallback(() => {
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
-      renderTaskRef.current = null;
-    }
     if (pdfDocRef.current) {
       try {
         pdfDocRef.current.cleanup();
@@ -1631,11 +1709,16 @@ export function usePDFEditor() {
     futureRef.current = [];
     editingPreValueRef.current = null;
 
+    // Cancel all in-progress renders
+    renderTasksRef.current.forEach(t => { try { t.cancel(); } catch {} });
+    renderTasksRef.current.clear();
+
     setState({
       fileName: '',
       totalPages: 0,
       currentPage: 1,
       scale: DEFAULT_SCALE,
+      pageDimensions: {},
       textItems: [],
       pageItems: {},
       redactions: {},
@@ -1662,6 +1745,7 @@ export function usePDFEditor() {
     state,
     loadPDF,
     renderPage,
+    cancelPageRender,
     beginTextEdit,
     updateTextWithoutHistory,
     commitTextEdit,

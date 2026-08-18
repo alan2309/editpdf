@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info,
-  GripVertical, Plus, EyeOff, Eraser, MousePointer,
-  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool, Tag, RotateCw, Search
+  Plus, EyeOff, Eraser, MousePointer, Layers,
+  CheckCircle2, AlertTriangle, FileCheck, PenTool, Tag, Search, ArrowRight
 } from 'lucide-react';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
   ExportMode, VerificationReport, PDFSignatureItem, PDFStampItem, SearchMatch
 } from '../types/pdf';
-import TextFormatToolbar from './TextFormatToolbar';
+import PDFPage from './PDFPage';
 import SignatureModal from './SignatureModal';
 import StampModal from './StampModal';
 import FindReplaceBar from './FindReplaceBar';
@@ -18,6 +18,7 @@ import SecurityStatusBadge from './SecurityStatusBadge';
 interface PDFEditorProps {
   state: PDFEditorState;
   renderPage: (canvas: HTMLCanvasElement, page: number, scale: number) => Promise<PDFTextItem[]>;
+  cancelPageRender?: (pageNum: number) => void;
   beginTextEdit?: (id: string) => void;
   updateTextWithoutHistory?: (id: string, text: string) => void;
   commitTextEdit?: (id: string) => void;
@@ -26,7 +27,7 @@ interface PDFEditorProps {
   updateFormat: (id: string, partial: Partial<TextFormat>) => void;
   updatePosition: (id: string, x: number, y: number) => void;
   deleteItem: (id: string) => void;
-  addTextField: () => void;
+  addTextField: (targetPage?: number) => void;
   addRedactionBox: (box: Omit<RedactionBox, 'id' | 'pageIndex'> & { pageIndex?: number }) => void;
   updateRedactionBox: (id: string, partial: Partial<RedactionBox>) => void;
   deleteRedactionBox: (id: string) => void;
@@ -63,8 +64,9 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 
 export default function PDFEditor({
-  state, renderPage, beginTextEdit, updateTextWithoutHistory, commitTextEdit, cancelTextEdit,
-  updateText, updateFormat, updatePosition, deleteItem,
+  state, renderPage, cancelPageRender = () => {},
+  beginTextEdit, updateTextWithoutHistory, commitTextEdit, cancelTextEdit: _cancelTextEdit,
+  updateText: _updateText, updateFormat, updatePosition, deleteItem,
   addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
   addSignature, updateSignature, deleteSignature, setActiveSignature,
   addStamp, updateStamp, deleteStamp, setActiveStamp,
@@ -73,70 +75,39 @@ export default function PDFEditor({
   setVerifyOnExport, setVerificationReport, runStandaloneVerification,
   undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
 }: PDFEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showFontNote, setShowFontNote] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [showStampModal, setShowStampModal] = useState(false);
-  const [isThumbnailsOpen, setIsThumbnailsOpen] = useState(true);
+  const [isThumbnailsOpen, setIsThumbnailsOpen] = useState(false); // Default closed on continuous scroll
+
+  // Go To Page State
+  const [showGoToPage, setShowGoToPage] = useState(false);
+  const [goToPageInput, setGoToPageInput] = useState('');
+  const goToInputRef = useRef<HTMLInputElement>(null);
 
   // Find & Replace State
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [matches, setMatches] = useState<SearchMatch[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(-1);
 
-  // Pointer Dragging State for Text
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragStartRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(null);
+  const {
+    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId, activeStampId,
+    activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
+    isVerifying, isDirty, isExporting, error, pageDimensions = {}
+  } = state;
 
-  // Pointer Dragging / Resizing State for Redaction Boxes (Blackout & Whiteout)
-  const [draggingRedactId, setDraggingRedactId] = useState<string | null>(null);
-  const [dragRedactPosition, setDragRedactPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragRedactStartRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(null);
-
-  const [resizingRedactId, setResizingRedactId] = useState<string | null>(null);
-  const [redactDimensions, setRedactDimensions] = useState<{ w: number; h: number } | null>(null);
-  const resizeRedactStartRef = useRef<{ pointerX: number; pointerY: number; startW: number; startH: number } | null>(null);
-
-  // Pointer Dragging / Resizing State for Signatures
-  const [draggingSigId, setDraggingSigId] = useState<string | null>(null);
-  const [dragSigPosition, setDragSigPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragSigStartRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(null);
-
-  const [resizingSigId, setResizingSigId] = useState<string | null>(null);
-  const [sigDimensions, setSigDimensions] = useState<{ w: number; h: number } | null>(null);
-  const resizeSigStartRef = useRef<{ pointerX: number; pointerY: number; startW: number; startH: number; ratio: number } | null>(null);
-
-  // Pointer Dragging / Resizing State for Stamps & Images
-  const [draggingStampId, setDraggingStampId] = useState<string | null>(null);
-  const [dragStampPosition, setDragStampPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragStampStartRef = useRef<{ pointerX: number; pointerY: number; startX: number; startY: number } | null>(null);
-
-  const [resizingStampId, setResizingStampId] = useState<string | null>(null);
-  const [stampDimensions, setStampDimensions] = useState<{ w: number; h: number } | null>(null);
-  const resizeStampStartRef = useRef<{ pointerX: number; pointerY: number; startW: number; startH: number; ratio: number } | null>(null);
-
-  // Drawing Redaction Box State (Pointer Events)
-  const [isDrawingRedaction, setIsDrawingRedaction] = useState(false);
-  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
-  const [currentRect, setCurrentRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-
-  // Render page when page/scale changes
-  useEffect(() => {
-    if (!canvasRef.current || state.totalPages === 0) return;
-    renderPage(canvasRef.current, state.currentPage, state.scale);
-    setEditValues({});
-  }, [state.currentPage, state.scale, state.totalPages, renderPage]);
-
-  // Initialize edit values when textItems arrive
+  // Initialize edit values when page items arrive
   useEffect(() => {
     const vals: Record<string, string> = {};
+    for (const items of Object.values(state.pageItems)) {
+      items.forEach(item => { vals[item.id] = item.editedText; });
+    }
     state.textItems.forEach(item => { vals[item.id] = item.editedText; });
     setEditValues(vals);
-  }, [state.textItems]);
+  }, [state.pageItems, state.textItems]);
 
   // Check if blackout redactions exist across document
   const hasBlackoutRedactions = Object.values(state.redactions)
@@ -149,7 +120,63 @@ export default function PDFEditor({
     }
   }, [hasBlackoutRedactions, state.exportMode, setExportMode]);
 
-  // Keyboard Shortcuts for Undo/Redo/Delete/Backspace/Escape/Ctrl+F
+  // ── Central Scroll To Page Navigation ───────────────────────────────────────
+  const scrollToPage = useCallback((pageNum: number, options?: { behavior?: ScrollBehavior; highlightItemId?: string }) => {
+    if (pageNum < 1 || pageNum > totalPages) return;
+    const pageEl = document.getElementById(`pdf-page-${pageNum}`);
+    if (pageEl && containerRef.current) {
+      pageEl.scrollIntoView({ behavior: options?.behavior ?? 'smooth', block: 'center' });
+    }
+    setCurrentPage(pageNum);
+    if (options?.highlightItemId) {
+      setActiveItem(options.highlightItemId);
+    }
+  }, [totalPages, setCurrentPage, setActiveItem]);
+
+  // ── Viewport Scroll Tracking for Current Page Indicator ─────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || totalPages <= 0) return;
+
+    let ticking = false;
+
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          if (!container) return;
+          const containerRect = container.getBoundingClientRect();
+          const containerCenterY = containerRect.top + containerRect.height / 2;
+
+          let bestPage = currentPage;
+          let minDistance = Infinity;
+
+          for (let p = 1; p <= totalPages; p++) {
+            const pageEl = document.getElementById(`pdf-page-${p}`);
+            if (pageEl) {
+              const rect = pageEl.getBoundingClientRect();
+              const pageCenterY = rect.top + rect.height / 2;
+              const dist = Math.abs(pageCenterY - containerCenterY);
+              if (dist < minDistance) {
+                minDistance = dist;
+                bestPage = p;
+              }
+            }
+          }
+
+          if (bestPage !== currentPage) {
+            setCurrentPage(bestPage);
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, [totalPages, currentPage, setCurrentPage]);
+
+  // ── Keyboard Shortcuts (Undo, Redo, Delete, GoToPage, Find) ─────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -179,6 +206,13 @@ export default function PDFEditor({
           } else if (e.key === 'f' || e.key === 'F') {
             e.preventDefault();
             setShowFindReplace(true);
+          } else if (e.key === 'g' || e.key === 'G') {
+            if (!isEditingInput) {
+              e.preventDefault();
+              setShowGoToPage(true);
+              setGoToPageInput(String(currentPage));
+              setTimeout(() => goToInputRef.current?.select(), 50);
+            }
           }
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -203,606 +237,198 @@ export default function PDFEditor({
           setMatches([]);
           setCurrentMatchIndex(-1);
         }
+        if (showGoToPage) {
+          setShowGoToPage(false);
+        }
         setActiveItem(null);
         setActiveRedaction(null);
         setActiveSignature(null);
         setActiveStamp(null);
         setActiveTool('select');
-        setIsDrawingRedaction(false);
-        setDrawStart(null);
-        setCurrentRect(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, state.activeRedactionId, state.activeSignatureId, state.activeStampId, showFindReplace, deleteRedactionBox, deleteSignature, deleteStamp, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
+  }, [
+    undo, redo, state.activeRedactionId, state.activeSignatureId, state.activeStampId,
+    showFindReplace, showGoToPage, currentPage, deleteRedactionBox, deleteSignature, deleteStamp,
+    setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool
+  ]);
 
-  // Handle Pointer Drag Start for text items
-  const handleDragPointerDown = useCallback((id: string, itemX: number, itemY: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setDraggingId(id);
-    setDragPosition({ x: itemX, y: itemY });
-    dragStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startX: itemX,
-      startY: itemY,
-    };
-  }, []);
-
-  // Handle Pointer Drag Start for Redaction Boxes
-  const handleRedactionDragStart = useCallback((id: string, boxX: number, boxY: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveRedaction(id);
-    setActiveItem(null);
-    setActiveSignature(null);
-    setActiveStamp(null);
-    setDraggingRedactId(id);
-    setDragRedactPosition({ x: boxX, y: boxY });
-    dragRedactStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startX: boxX,
-      startY: boxY,
-    };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
-
-  // Handle Pointer Resize Start for Redaction Boxes
-  const handleRedactionResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveRedaction(id);
-    setResizingRedactId(id);
-    setRedactDimensions({ w, h });
-    resizeRedactStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startW: w,
-      startH: h,
-    };
-  }, [setActiveRedaction]);
-
-  // Handle Pointer Drag Start for Signatures
-  const handleSignatureDragStart = useCallback((id: string, sigX: number, sigY: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveSignature(id);
-    setActiveItem(null);
-    setActiveRedaction(null);
-    setActiveStamp(null);
-    setDraggingSigId(id);
-    setDragSigPosition({ x: sigX, y: sigY });
-    dragSigStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startX: sigX,
-      startY: sigY,
-    };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
-
-  // Handle Pointer Resize Start for Signatures
-  const handleSignatureResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveSignature(id);
-    setResizingSigId(id);
-    setSigDimensions({ w, h });
-    resizeSigStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startW: w,
-      startH: h,
-      ratio: w / h,
-    };
-  }, [setActiveSignature]);
-
-  // Handle Pointer Drag Start for Stamps & Images
-  const handleStampDragStart = useCallback((id: string, stampX: number, stampY: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveStamp(id);
-    setActiveItem(null);
-    setActiveRedaction(null);
-    setActiveSignature(null);
-    setDraggingStampId(id);
-    setDragStampPosition({ x: stampX, y: stampY });
-    dragStampStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startX: stampX,
-      startY: stampY,
-    };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
-
-  // Handle Pointer Resize Start for Stamps & Images
-  const handleStampResizeStart = useCallback((id: string, w: number, h: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setActiveStamp(id);
-    setResizingStampId(id);
-    setStampDimensions({ w, h });
-    resizeStampStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startW: w,
-      startH: h,
-      ratio: w / h,
-    };
-  }, [setActiveStamp]);
-
-  // Global Pointer listeners for dragging & resizing across mouse, touch, and stylus
-  useEffect(() => {
-    const handlePointerMove = (e: PointerEvent) => {
-      const canvas = canvasRef.current;
-      const canvasWidth = canvas ? canvas.width : 2000;
-      const canvasHeight = canvas ? canvas.height : 2000;
-
-      // 1. Text item dragging
-      if (draggingId && dragStartRef.current) {
-        const start = dragStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const item = state.textItems.find(i => i.id === draggingId);
-        if (item) {
-          const newX = Math.max(0, Math.min(canvasWidth - item.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(canvasHeight - item.height, start.startY + deltaY));
-          setDragPosition({ x: newX, y: newY });
-        }
-      }
-
-      // 2. Redaction box dragging
-      if (draggingRedactId && dragRedactStartRef.current) {
-        const start = dragRedactStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const currentRedacts = state.redactions[state.currentPage] || [];
-        const box = currentRedacts.find(b => b.id === draggingRedactId);
-        if (box) {
-          const newX = Math.max(0, Math.min(canvasWidth - box.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(canvasHeight - box.height, start.startY + deltaY));
-          setDragRedactPosition({ x: newX, y: newY });
-        }
-      }
-
-      // 3. Redaction box resizing
-      if (resizingRedactId && resizeRedactStartRef.current) {
-        const start = resizeRedactStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const newW = Math.max(10, Math.min(canvasWidth, start.startW + deltaX));
-        const newH = Math.max(8, Math.min(canvasHeight, start.startH + deltaY));
-        setRedactDimensions({ w: newW, h: newH });
-      }
-
-      // 4. Signature dragging
-      if (draggingSigId && dragSigStartRef.current) {
-        const start = dragSigStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const currentSigs = state.signatures[state.currentPage] || [];
-        const sig = currentSigs.find(s => s.id === draggingSigId);
-        if (sig) {
-          const newX = Math.max(0, Math.min(canvasWidth - sig.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(canvasHeight - sig.height, start.startY + deltaY));
-          setDragSigPosition({ x: newX, y: newY });
-        }
-      }
-
-      // 5. Signature resizing
-      if (resizingSigId && resizeSigStartRef.current) {
-        const start = resizeSigStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const newW = Math.max(40, Math.min(600, start.startW + deltaX));
-        const newH = Math.max(20, newW / start.ratio);
-        setSigDimensions({ w: newW, h: newH });
-      }
-
-      // 6. Stamp dragging
-      if (draggingStampId && dragStampStartRef.current) {
-        const start = dragStampStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const deltaY = e.clientY - start.pointerY;
-        const currentStamps = state.stamps[state.currentPage] || [];
-        const st = currentStamps.find(s => s.id === draggingStampId);
-        if (st) {
-          const newX = Math.max(0, Math.min(canvasWidth - st.width, start.startX + deltaX));
-          const newY = Math.max(0, Math.min(canvasHeight - st.height, start.startY + deltaY));
-          setDragStampPosition({ x: newX, y: newY });
-        }
-      }
-
-      // 7. Stamp resizing
-      if (resizingStampId && resizeStampStartRef.current) {
-        const start = resizeStampStartRef.current;
-        const deltaX = e.clientX - start.pointerX;
-        const newW = Math.max(30, Math.min(600, start.startW + deltaX));
-        const newH = Math.max(20, newW / start.ratio);
-        setStampDimensions({ w: newW, h: newH });
-      }
-    };
-
-    const handlePointerUp = () => {
-      // 1. Text item drop
-      if (draggingId && dragStartRef.current && dragPosition) {
-        const start = dragStartRef.current;
-        const hasMoved = Math.abs(dragPosition.x - start.startX) > 0.5 || Math.abs(dragPosition.y - start.startY) > 0.5;
-        if (hasMoved) {
-          updatePosition(draggingId, dragPosition.x, dragPosition.y);
-        }
-        setDraggingId(null);
-        setDragPosition(null);
-        dragStartRef.current = null;
-      }
-
-      // 2. Redaction box drop
-      if (draggingRedactId && dragRedactStartRef.current && dragRedactPosition) {
-        const start = dragRedactStartRef.current;
-        const hasMoved = Math.abs(dragRedactPosition.x - start.startX) > 0.5 || Math.abs(dragRedactPosition.y - start.startY) > 0.5;
-        if (hasMoved) {
-          updateRedactionBox(draggingRedactId, { x: dragRedactPosition.x, y: dragRedactPosition.y });
-        }
-        setDraggingRedactId(null);
-        setDragRedactPosition(null);
-        dragRedactStartRef.current = null;
-      }
-
-      // 3. Redaction box resize end
-      if (resizingRedactId && resizeRedactStartRef.current && redactDimensions) {
-        updateRedactionBox(resizingRedactId, { width: redactDimensions.w, height: redactDimensions.h });
-        setResizingRedactId(null);
-        setRedactDimensions(null);
-        resizeRedactStartRef.current = null;
-      }
-
-      // 4. Signature drop
-      if (draggingSigId && dragSigStartRef.current && dragSigPosition) {
-        const start = dragSigStartRef.current;
-        const hasMoved = Math.abs(dragSigPosition.x - start.startX) > 0.5 || Math.abs(dragSigPosition.y - start.startY) > 0.5;
-        if (hasMoved) {
-          updateSignature(draggingSigId, { x: dragSigPosition.x, y: dragSigPosition.y });
-        }
-        setDraggingSigId(null);
-        setDragSigPosition(null);
-        dragSigStartRef.current = null;
-      }
-
-      // 5. Signature resize end
-      if (resizingSigId && resizeSigStartRef.current && sigDimensions) {
-        updateSignature(resizingSigId, { width: sigDimensions.w, height: sigDimensions.h });
-        setResizingSigId(null);
-        setSigDimensions(null);
-        resizeSigStartRef.current = null;
-      }
-
-      // 6. Stamp drop
-      if (draggingStampId && dragStampStartRef.current && dragStampPosition) {
-        const start = dragStampStartRef.current;
-        const hasMoved = Math.abs(dragStampPosition.x - start.startX) > 0.5 || Math.abs(dragStampPosition.y - start.startY) > 0.5;
-        if (hasMoved) {
-          updateStamp(draggingStampId, { x: dragStampPosition.x, y: dragStampPosition.y });
-        }
-        setDraggingStampId(null);
-        setDragStampPosition(null);
-        dragStampStartRef.current = null;
-      }
-
-      // 7. Stamp resize end
-      if (resizingStampId && resizeStampStartRef.current && stampDimensions) {
-        updateStamp(resizingStampId, { width: stampDimensions.w, height: stampDimensions.h });
-        setResizingStampId(null);
-        setStampDimensions(null);
-        resizeStampStartRef.current = null;
-      }
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [draggingId, dragPosition, draggingRedactId, dragRedactPosition, resizingRedactId, redactDimensions, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, draggingStampId, dragStampPosition, resizingStampId, stampDimensions, state.signatures, state.stamps, state.redactions, state.currentPage, state.textItems, updatePosition, updateRedactionBox, updateSignature, updateStamp]);
-
-  // Handle Redaction Box Interactive Drawing on Canvas via Pointer Events
-  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (state.activeTool !== 'blackout' && state.activeTool !== 'whiteout') {
-      setActiveItem(null);
-      setActiveRedaction(null);
-      setActiveSignature(null);
-      setActiveStamp(null);
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
-
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setIsDrawingRedaction(true);
-    setDrawStart({ x: startX, y: startY });
-    setCurrentRect({ x: startX, y: startY, w: 0, h: 0 });
+  // ── Zoom with Relative Scroll Preservation ──────────────────────────────────
+  const zoom = (direction: 1 | -1) => {
+    const currentViewPage = currentPage;
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((scale + direction * SCALE_STEP) * 100) / 100));
+    setScale(next);
+    // After scale update, keep the current page centered
+    setTimeout(() => {
+      scrollToPage(currentViewPage, { behavior: 'instant' });
+    }, 50);
   };
 
-  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDrawingRedaction || !drawStart) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
-
-    const x = Math.min(drawStart.x, currentX);
-    const y = Math.min(drawStart.y, currentY);
-    const w = Math.abs(currentX - drawStart.x);
-    const h = Math.abs(currentY - drawStart.y);
-
-    setCurrentRect({ x, y, w, h });
-  };
-
-  const handleCanvasPointerUp = () => {
-    if (isDrawingRedaction && currentRect && drawStart) {
-      const boxType = state.activeTool === 'blackout' ? 'blackout' : 'whiteout';
-      if (currentRect.w > 8 && currentRect.h > 8) {
-        addRedactionBox({
-          x: currentRect.x,
-          y: currentRect.y,
-          width: currentRect.w,
-          height: currentRect.h,
-          type: boxType,
-        });
-      } else {
-        addRedactionBox({
-          x: drawStart.x - 40,
-          y: drawStart.y - 12,
-          width: 80,
-          height: 24,
-          type: boxType,
-        });
-      }
-      setIsDrawingRedaction(false);
-      setDrawStart(null);
-      setCurrentRect(null);
-      setActiveTool('select');
-    }
-  };
-
-  const handleItemClick = useCallback((id: string, e: React.MouseEvent) => {
+  // ── Text Item Interaction Callbacks ─────────────────────────────────────────
+  const handleItemClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (activeTool !== 'select') return;
     setActiveRedaction(null);
     setActiveSignature(null);
     setActiveStamp(null);
     setActiveItem(id);
-    if (beginTextEdit) beginTextEdit(id);
-  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, beginTextEdit]);
+    beginTextEdit?.(id);
+  };
 
-  const handleInputChange = useCallback((id: string, val: string) => {
-    setEditValues(prev => ({ ...prev, [id]: val }));
-    if (updateTextWithoutHistory) {
-      updateTextWithoutHistory(id, val);
-    } else {
-      updateText(id, val);
-    }
-  }, [updateTextWithoutHistory, updateText]);
+  const handleItemTextChange = (id: string, newText: string) => {
+    setEditValues(p => ({ ...p, [id]: newText }));
+    updateTextWithoutHistory?.(id, newText);
+  };
 
-  const handleBlur = useCallback((id: string) => {
-    if (commitTextEdit) {
-      commitTextEdit(id);
-    }
+  const handleItemBlur = (id: string) => {
+    commitTextEdit?.(id);
     setActiveItem(null);
-  }, [commitTextEdit, setActiveItem]);
-
-  const zoom = (dir: 1 | -1) => {
-    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.scale + dir * SCALE_STEP));
-    setScale(next);
   };
 
-  // Handle signature inserted from modal
-  const handleSignatureInserted = (dataUrl: string, width: number, height: number) => {
-    const canvas = canvasRef.current;
-    const defaultX = canvas ? Math.max(50, canvas.width / 2 - width / 2) : 100;
-    const defaultY = canvas ? Math.max(50, canvas.height / 2 - height / 2) : 200;
-
-    addSignature({
-      dataUrl,
-      x: defaultX,
-      y: defaultY,
-      width,
-      height,
-    });
-  };
-
-  // Handle stamp inserted from modal
-  const handleStampInserted = (
-    dataUrl: string,
-    width: number,
-    height: number,
-    rotation: number,
-    opacity: number,
-    label?: string
-  ) => {
-    const canvas = canvasRef.current;
-    const defaultX = canvas ? Math.max(50, canvas.width / 2 - width / 2) : 100;
-    const defaultY = canvas ? Math.max(50, canvas.height / 2 - height / 2) : 180;
-
-    addStamp({
-      type: label ? 'preset-stamp' : 'custom-image',
-      dataUrl,
-      label,
-      x: defaultX,
-      y: defaultY,
-      width,
-      height,
-      rotation,
-      opacity,
-    });
-  };
-
-  // Find & Replace Navigation Callback
+  // ── Find & Replace Match Navigation ─────────────────────────────────────────
   const handleNavigateToMatch = useCallback((match: SearchMatch) => {
-    if (match.pageNumber !== state.currentPage) {
-      setCurrentPage(match.pageNumber);
+    scrollToPage(match.pageNumber, { highlightItemId: match.itemId });
+  }, [scrollToPage]);
+
+  // ── Go To Page Submit Handler ───────────────────────────────────────────────
+  const handleGoToPageSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const target = parseInt(goToPageInput, 10);
+    if (!isNaN(target) && target >= 1 && target <= totalPages) {
+      scrollToPage(target);
+      setShowGoToPage(false);
     }
-  }, [state.currentPage, setCurrentPage]);
+  };
 
-  const {
-    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId, activeStampId,
-    activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
-    isVerifying, isDirty, isLoading, isExporting, error
-  } = state;
-
-  const currentRedactions = state.redactions[currentPage] || [];
-  const currentSignatures = state.signatures[currentPage] || [];
-  const currentStamps = state.stamps[currentPage] || [];
+  // Redactions, Signatures, and Stamps counts
   const allRedactionCount = Object.values(state.redactions).reduce((acc, list) => acc + list.length, 0);
-  const allSignatureCount = Object.values(state.signatures).reduce((acc, list) => acc + list.length, 0);
-  const allStampCount = Object.values(state.stamps).reduce((acc, list) => acc + list.length, 0);
 
   // Active item font details for font notice
-  const activeItemObj = activeItemId ? textItems.find(i => i.id === activeItemId) : null;
+  const allTextItemsList = Object.values(state.pageItems).flat();
+  const activeItemObj = activeItemId ? (allTextItemsList.find(i => i.id === activeItemId) || textItems.find(i => i.id === activeItemId)) : null;
 
   return (
     <section id="editor" style={{ padding: '0 0 4rem', position: 'relative' }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 1.5rem', position: 'relative' }}>
+      <div style={{ maxWidth: 1440, margin: '0 auto', padding: '0 1rem', position: 'relative' }}>
 
-        {/* Top Control Bar */}
+        {/* Top Control Toolbar */}
         <div className="card-glass" style={{
           borderRadius: '1rem 1rem 0 0',
-          padding: '0.75rem 1.25rem',
-          display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
-          borderBottom: 'none',
+          padding: '0.75rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.65rem',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
-          {/* File name */}
-          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f0f0f0', flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {state.fileName}
-          </span>
-
-          {/* Primary Editor Tools */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(255,255,255,0.04)', padding: '0.25rem', borderRadius: '0.65rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+          {/* Left: Thumbnail toggle & Tools */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {/* Optional Thumbnail Sidebar Toggle Button */}
             <button
-              className={`btn-icon ${activeTool === 'select' ? 'btn-active' : ''}`}
+              className={`btn-icon ${isThumbnailsOpen ? 'active-tool' : ''}`}
               style={{
-                width: 32, height: 32,
-                background: activeTool === 'select' ? 'rgba(77,107,250,0.25)' : 'transparent',
-                color: activeTool === 'select' ? '#7c9aff' : 'rgba(240,240,240,0.7)',
-                borderColor: activeTool === 'select' ? '#4d6bfa' : 'transparent',
+                height: 36,
+                padding: '0 0.65rem',
+                gap: '0.35rem',
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                background: isThumbnailsOpen ? 'rgba(77,107,250,0.25)' : 'rgba(255,255,255,0.06)',
+                borderColor: isThumbnailsOpen ? '#4d6bfa' : 'rgba(255,255,255,0.1)',
+                color: isThumbnailsOpen ? '#7c9aff' : '#f0f0f0',
               }}
-              onClick={() => setActiveTool('select')}
-              title="Select & Edit Existing Text"
+              onClick={() => setIsThumbnailsOpen(p => !p)}
+              title="Toggle page thumbnails overview"
             >
-              <MousePointer size={14} />
+              <Layers size={14} />
+              <span className="hidden sm:inline">Pages</span>
             </button>
 
+            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 0.2rem' }} />
+
+            {/* Select Tool */}
             <button
-              className="btn-secondary"
+              className="btn-icon"
               style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.8rem',
+                height: 36,
+                padding: '0 0.65rem',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
+                fontSize: '0.8rem',
+                background: activeTool === 'select' ? 'rgba(77,107,250,0.25)' : 'rgba(255,255,255,0.05)',
+                borderColor: activeTool === 'select' ? '#4d6bfa' : 'rgba(255,255,255,0.1)',
+                color: activeTool === 'select' ? '#7c9aff' : '#f0f0f0',
+                fontWeight: activeTool === 'select' ? 700 : 500,
+              }}
+              onClick={() => {
+                setActiveTool('select');
+                setActiveRedaction(null);
+                setActiveSignature(null);
+                setActiveStamp(null);
+              }}
+              title="Select & Edit Mode (V)"
+            >
+              <MousePointer size={14} /> <span className="hidden md:inline">Select</span>
+            </button>
+
+            {/* Add Text Field Button */}
+            <button
+              className="btn-icon"
+              style={{
+                height: 36,
+                padding: '0 0.65rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontSize: '0.8rem',
+                background: 'rgba(255,255,255,0.05)',
+                borderColor: 'rgba(255,255,255,0.1)',
                 color: '#f0f0f0',
               }}
-              onClick={addTextField}
-              title="Add New Text Field"
+              onClick={() => addTextField(currentPage)}
+              title="Insert new editable text field on current page"
             >
-              <Plus size={13} color="#4d6bfa" /> Add Text
+              <Plus size={14} color="#4d6bfa" /> <span className="hidden md:inline">Add Text</span>
             </button>
 
+            {/* Blackout Redaction Button */}
             <button
-              className="btn-secondary"
+              className="btn-icon"
               style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.8rem',
+                height: 36,
+                padding: '0 0.65rem',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                background: 'rgba(77,107,250,0.12)',
-                borderColor: 'rgba(77,107,250,0.3)',
-                color: '#7c9aff',
-                fontWeight: 600,
-              }}
-              onClick={() => setShowSignatureModal(true)}
-              title="Sign PDF: Draw, Type, or Upload Signature Stamp"
-            >
-              <PenTool size={13} color="#7c9aff" /> Sign PDF
-            </button>
-
-            <button
-              className="btn-secondary"
-              style={{
-                padding: '0.35rem 0.75rem',
                 fontSize: '0.8rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                background: 'rgba(34,197,94,0.12)',
-                borderColor: 'rgba(34,197,94,0.3)',
-                color: '#4ade80',
-                fontWeight: 600,
-              }}
-              onClick={() => setShowStampModal(true)}
-              title="Stamp Documents: Insert APPROVED, PAID, Checkmarks, or Logos"
-            >
-              <Tag size={13} color="#4ade80" /> Stamp / Image
-            </button>
-
-            <button
-              className="btn-secondary"
-              style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.8rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                background: showFindReplace ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)',
-                borderColor: showFindReplace ? '#f59e0b' : 'rgba(255,255,255,0.1)',
-                color: showFindReplace ? '#fcd34d' : '#f0f0f0',
-                fontWeight: showFindReplace ? 700 : 500,
-              }}
-              onClick={() => setShowFindReplace(p => !p)}
-              title="Find & Replace Text (Ctrl + F)"
-            >
-              <Search size={13} color="#f59e0b" /> Find & Replace
-            </button>
-
-            <button
-              className={`btn-secondary ${activeTool === 'blackout' ? 'btn-active' : ''}`}
-              style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.8rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                background: activeTool === 'blackout' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                background: activeTool === 'blackout' ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.05)',
                 borderColor: activeTool === 'blackout' ? '#ef4444' : 'rgba(255,255,255,0.1)',
                 color: activeTool === 'blackout' ? '#fca5a5' : '#f0f0f0',
                 fontWeight: activeTool === 'blackout' ? 700 : 500,
               }}
               onClick={() => setActiveTool(activeTool === 'blackout' ? 'select' : 'blackout')}
-              title="Draw Permanent Blackout Redaction Box"
+              title="Draw Permanent Blackout Redaction Area"
             >
-              <EyeOff size={13} color="#ef4444" /> Blackout Redact
+              <EyeOff size={14} color="#ef4444" /> <span className="hidden sm:inline">Blackout</span>
             </button>
 
+            {/* Whiteout Eraser Button */}
             <button
-              className={`btn-secondary ${activeTool === 'whiteout' ? 'btn-active' : ''}`}
+              className="btn-icon"
               style={{
-                padding: '0.35rem 0.75rem',
-                fontSize: '0.8rem',
+                height: 36,
+                padding: '0 0.65rem',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                background: activeTool === 'whiteout' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+                fontSize: '0.8rem',
+                background: activeTool === 'whiteout' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)',
                 borderColor: activeTool === 'whiteout' ? '#ffffff' : 'rgba(255,255,255,0.1)',
                 color: activeTool === 'whiteout' ? '#ffffff' : '#f0f0f0',
                 fontWeight: activeTool === 'whiteout' ? 700 : 500,
@@ -810,123 +436,172 @@ export default function PDFEditor({
               onClick={() => setActiveTool(activeTool === 'whiteout' ? 'select' : 'whiteout')}
               title="Draw Whiteout Area Eraser"
             >
-              <Eraser size={13} color="#ffffff" /> Whiteout
+              <Eraser size={14} color="#ffffff" /> <span className="hidden sm:inline">Whiteout</span>
             </button>
-          </div>
 
-          {/* Security Status Badge */}
-          <SecurityStatusBadge
-            redactionsCount={allRedactionCount}
-            exportMode={exportMode}
-            verificationReport={verificationReport}
-            hasBlackoutRedactions={hasBlackoutRedactions}
-          />
-
-          {/* Zoom */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => zoom(-1)} disabled={scale <= MIN_SCALE} aria-label="Zoom out">
-              <ZoomOut size={14} />
-            </button>
-            <span style={{ fontSize: '0.8rem', color: 'rgba(240,240,240,0.6)', minWidth: 44, textAlign: 'center', fontWeight: 600 }}>
-              {Math.round(scale * 100)}%
-            </span>
-            <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => zoom(1)} disabled={scale >= MAX_SCALE} aria-label="Zoom in">
-              <ZoomIn size={14} />
-            </button>
-          </div>
-
-          {/* Page nav */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} aria-label="Previous page">
-              <ChevronLeft size={14} />
-            </button>
-            <span style={{ fontSize: '0.8rem', color: 'rgba(240,240,240,0.6)', minWidth: 56, textAlign: 'center', fontWeight: 600 }}>
-              {currentPage} / {totalPages}
-            </span>
-            <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages} aria-label="Next page">
-              <ChevronRight size={14} />
-            </button>
-          </div>
-
-          {/* Font note */}
-          <button
-            className="btn-icon"
-            style={{ width: 32, height: 32, position: 'relative' }}
-            onClick={() => setShowFontNote(p => !p)}
-            title="Font notice and inspection"
-          >
-            <Info size={14} />
-            {showFontNote && (
-              <div style={{
-                position: 'absolute', bottom: 'calc(100% + 8px)', right: 0,
-                background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '0.75rem', padding: '0.75rem 1rem', width: 280,
-                fontSize: '0.75rem', color: 'rgba(240,240,240,0.7)',
-                textAlign: 'left', lineHeight: 1.6, zIndex: 100,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-              }}>
-                <strong style={{ color: '#f0f0f0', display: 'block', marginBottom: '0.25rem' }}>PDF Font Compatibility:</strong>
-                <div>Edited text uses standard PDF fonts (Helvetica, Times-Roman, Courier).</div>
-                {activeItemObj && (
-                  <div style={{ marginTop: '0.35rem', padding: '0.35rem', background: 'rgba(255,255,255,0.05)', borderRadius: 4 }}>
-                    <div><strong>Original font:</strong> {activeItemObj.fontName || 'Embedded PDF Font'}</div>
-                    <div><strong>Editing font:</strong> {activeItemObj.format.fontFamily}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </button>
-
-          {/* Redaction Verification Quick Action Button */}
-          {isDirty && (
+            {/* Digital Signature Modal Trigger */}
             <button
-              className="btn-secondary"
+              className="btn-icon"
               style={{
-                padding: '0.4rem 0.85rem',
-                fontSize: '0.8rem',
+                height: 36,
+                padding: '0 0.65rem',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                background: 'rgba(34,197,94,0.12)',
-                borderColor: 'rgba(34,197,94,0.3)',
-                color: '#4ade80',
+                fontSize: '0.8rem',
+                background: showSignatureModal ? 'rgba(77,107,250,0.2)' : 'rgba(255,255,255,0.05)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                color: '#f0f0f0',
               }}
-              onClick={runStandaloneVerification}
-              disabled={isVerifying}
-              title="Audit and verify that redacted text cannot be extracted"
+              onClick={() => setShowSignatureModal(true)}
+              title="Draw, type, or upload a digital signature"
             >
-              {isVerifying ? (
-                <span style={{ width: 12, height: 12, border: '2px solid rgba(74,222,128,0.3)', borderTopColor: '#4ade80', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
-              ) : (
-                <FileCheck size={13} />
-              )}
-              {isVerifying ? 'Auditing…' : 'Verify Redactions'}
+              <PenTool size={14} color="#4d6bfa" /> <span className="hidden md:inline">Sign</span>
             </button>
-          )}
 
-          {/* Reset */}
-          <button className="btn-secondary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }} onClick={resetEditor}>
-            <RotateCcw size={13} /> New PDF
-          </button>
+            {/* Official Stamp Modal Trigger */}
+            <button
+              className="btn-icon"
+              style={{
+                height: 36,
+                padding: '0 0.65rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontSize: '0.8rem',
+                background: showStampModal ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.05)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                color: '#f0f0f0',
+              }}
+              onClick={() => setShowStampModal(true)}
+              title="Insert official approval stamps or custom PNG/JPG images"
+            >
+              <Tag size={14} color="#4ade80" /> <span className="hidden md:inline">Stamp</span>
+            </button>
 
-          {/* Export / Download Button */}
-          <button
-            className="btn-primary"
-            style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            onClick={() => setShowExportModal(true)}
-            disabled={!isDirty || isExporting}
-            title={!isDirty ? 'Make some edits first' : 'Download edited PDF'}
-          >
-            {isExporting ? (
-              <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
-            ) : <Download size={14} />}
-            {isExporting ? 'Processing…' : 'Download PDF'}
-          </button>
+            {/* Find & Replace Trigger */}
+            <button
+              className="btn-icon"
+              style={{
+                height: 36,
+                padding: '0 0.65rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontSize: '0.8rem',
+                background: showFindReplace ? 'rgba(245,158,11,0.25)' : 'rgba(255,255,255,0.05)',
+                borderColor: showFindReplace ? '#f59e0b' : 'rgba(255,255,255,0.1)',
+                color: showFindReplace ? '#fbbf24' : '#f0f0f0',
+              }}
+              onClick={() => setShowFindReplace(p => !p)}
+              title="Find and Replace text across all pages (Ctrl+F)"
+            >
+              <Search size={14} /> <span className="hidden lg:inline">Find & Replace</span>
+            </button>
+          </div>
 
-          {/* Close */}
-          <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={resetEditor} aria-label="Close editor">
-            <X size={14} />
-          </button>
+          {/* Right: Security Badge, Zoom, Redaction audit, Export & Reset */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {/* Security Status Badge */}
+            <SecurityStatusBadge
+              redactionsCount={allRedactionCount}
+              exportMode={exportMode}
+              verificationReport={verificationReport}
+              hasBlackoutRedactions={hasBlackoutRedactions}
+            />
+
+            {/* Zoom Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+              <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => zoom(-1)} disabled={scale <= MIN_SCALE} aria-label="Zoom out">
+                <ZoomOut size={14} />
+              </button>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(240,240,240,0.6)', minWidth: 44, textAlign: 'center', fontWeight: 600 }}>
+                {Math.round(scale * 100)}%
+              </span>
+              <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={() => zoom(1)} disabled={scale >= MAX_SCALE} aria-label="Zoom in">
+                <ZoomIn size={14} />
+              </button>
+            </div>
+
+            {/* Redaction Verification Quick Action Button */}
+            {isDirty && (
+              <button
+                className="btn-secondary hidden lg:flex"
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.8rem',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  background: 'rgba(34,197,94,0.12)',
+                  borderColor: 'rgba(34,197,94,0.3)',
+                  color: '#4ade80',
+                }}
+                onClick={runStandaloneVerification}
+                disabled={isVerifying}
+                title="Audit and verify that redacted text cannot be extracted"
+              >
+                {isVerifying ? (
+                  <span style={{ width: 12, height: 12, border: '2px solid rgba(74,222,128,0.3)', borderTopColor: '#4ade80', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
+                ) : (
+                  <FileCheck size={13} />
+                )}
+                {isVerifying ? 'Auditing…' : 'Verify'}
+              </button>
+            )}
+
+            {/* Font notice */}
+            <button
+              className="btn-icon"
+              style={{ width: 32, height: 32, position: 'relative' }}
+              onClick={() => setShowFontNote(p => !p)}
+              title="Font notice and inspection"
+            >
+              <Info size={14} />
+              {showFontNote && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                  background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '0.75rem', padding: '0.75rem 1rem', width: 280,
+                  fontSize: '0.75rem', color: 'rgba(240,240,240,0.7)',
+                  textAlign: 'left', lineHeight: 1.6, zIndex: 100,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                }}>
+                  <strong style={{ color: '#f0f0f0', display: 'block', marginBottom: '0.25rem' }}>PDF Font Compatibility:</strong>
+                  <div>Edited text uses standard PDF fonts (Helvetica, Times-Roman, Courier).</div>
+                  {activeItemObj && (
+                    <div style={{ marginTop: '0.35rem', padding: '0.35rem', background: 'rgba(255,255,255,0.05)', borderRadius: 4 }}>
+                      <div><strong>Original font:</strong> {activeItemObj.fontName || 'Embedded PDF Font'}</div>
+                      <div><strong>Editing font:</strong> {activeItemObj.format.fontFamily}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </button>
+
+            {/* Reset */}
+            <button className="btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }} onClick={resetEditor}>
+              <RotateCcw size={13} /> <span className="hidden sm:inline">New PDF</span>
+            </button>
+
+            {/* Export / Download Button */}
+            <button
+              className="btn-primary"
+              style={{ padding: '0.45rem 1.15rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              onClick={() => setShowExportModal(true)}
+              disabled={!isDirty || isExporting}
+              title={!isDirty ? 'Make some edits first' : 'Download edited PDF'}
+            >
+              {isExporting ? (
+                <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
+              ) : <Download size={14} />}
+              <span>Download</span>
+            </button>
+
+            {/* Close */}
+            <button className="btn-icon" style={{ width: 32, height: 32 }} onClick={resetEditor} aria-label="Close editor">
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {/* Redaction Tool Active Indicator Bar */}
@@ -942,7 +617,7 @@ export default function PDFEditor({
             justifyContent: 'space-between',
           }}>
             <span>
-              <strong>{activeTool === 'blackout' ? '⬛ Blackout Redaction Mode:' : '⬜ Whiteout Mode:'}</strong> Click and drag on the PDF page to create a redaction zone.
+              <strong>{activeTool === 'blackout' ? '⬛ Blackout Redaction Mode:' : '⬜ Whiteout Mode:'}</strong> Click and drag on any PDF page to create a redaction zone.
             </span>
             <button
               onClick={() => setActiveTool('select')}
@@ -953,34 +628,35 @@ export default function PDFEditor({
           </div>
         )}
 
-        {/* Main Work Area: Sidebar + Canvas Viewport */}
-        <div style={{ display: 'flex', position: 'relative', width: '100%', minHeight: '70vh' }}>
-          {/* Left Thumbnails Sidebar */}
-          <PageThumbnailsSidebar
-            isOpen={isThumbnailsOpen}
-            onToggle={() => setIsThumbnailsOpen(p => !p)}
-            totalPages={totalPages}
-            currentPage={currentPage}
-            onSelectPage={setCurrentPage}
-            pageItems={state.pageItems}
-            redactions={state.redactions}
-            signatures={state.signatures}
-            stamps={state.stamps}
-          />
+        {/* Main Work Area: Optional Sidebar + Continuous Document Scroll Container */}
+        <div style={{ display: 'flex', position: 'relative', width: '100%', minHeight: '75vh' }}>
+          {/* Optional Left Thumbnails Sidebar / Drawer */}
+          {isThumbnailsOpen && (
+            <PageThumbnailsSidebar
+              isOpen={isThumbnailsOpen}
+              onToggle={() => setIsThumbnailsOpen(false)}
+              totalPages={totalPages}
+              currentPage={currentPage}
+              onSelectPage={pageNum => scrollToPage(pageNum)}
+              pageItems={state.pageItems}
+              redactions={state.redactions}
+              signatures={state.signatures}
+              stamps={state.stamps}
+            />
+          )}
 
-          {/* Canvas + text overlay area */}
+          {/* Continuous Document Scroll Viewport */}
           <div
             ref={containerRef}
-            className="card-glass"
+            className="document-scroll-container card-glass"
             style={{
               flex: 1,
               borderRadius: isThumbnailsOpen ? '0 0 1rem 0' : '0 0 1rem 1rem',
-              padding: '1.5rem',
+              padding: '1.5rem 1rem',
               overflowX: 'auto',
               overflowY: 'auto',
-              maxHeight: '75vh',
+              maxHeight: '80vh',
               position: 'relative',
-              cursor: activeTool === 'blackout' || activeTool === 'whiteout' ? 'crosshair' : 'default',
             }}
             onClick={() => {
               if (activeTool === 'select') {
@@ -1010,658 +686,248 @@ export default function PDFEditor({
               setCurrentMatchIndex={setCurrentMatchIndex}
             />
 
-            {isLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '5rem', gap: '1rem', color: 'rgba(240,240,240,0.5)' }}>
-                <span style={{ width: 28, height: 28, border: '3px solid rgba(77,107,250,0.3)', borderTopColor: '#4d6bfa', borderRadius: '50%', display: 'inline-block', animation: 'spin-slow 0.8s linear infinite' }} />
-                <span>Rendering page…</span>
-              </div>
-            )}
-
             {error && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.75rem', padding: '1rem 1.25rem', color: '#fca5a5', fontSize: '0.875rem' }}>
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.75rem', padding: '1rem 1.25rem', color: '#fca5a5', fontSize: '0.875rem', marginBottom: '1rem' }}>
                 {error}
               </div>
             )}
 
-            {!isLoading && !error && (
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
+            {/* Continuous Vertical Document Stack */}
+            <div className="document-stack" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '24px',
+              paddingBottom: '4rem',
+            }}>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                <PDFPage
+                  key={pageNum}
+                  pageNumber={pageNum}
+                  scale={scale}
+                  pageDimension={pageDimensions[pageNum]}
+                  renderPage={renderPage}
+                  cancelPageRender={cancelPageRender}
+                  textItems={state.pageItems[pageNum] || []}
+                  redactions={state.redactions[pageNum] || []}
+                  signatures={state.signatures[pageNum] || []}
+                  stamps={state.stamps[pageNum] || []}
+                  activeItemId={activeItemId}
+                  activeRedactionId={activeRedactionId}
+                  activeSignatureId={activeSignatureId}
+                  activeStampId={activeStampId}
+                  activeTool={activeTool}
+                  setActiveItem={setActiveItem}
+                  setActiveRedaction={setActiveRedaction}
+                  setActiveSignature={setActiveSignature}
+                  setActiveStamp={setActiveStamp}
+                  setActiveTool={setActiveTool}
+                  editValues={editValues}
+                  onItemTextChange={handleItemTextChange}
+                  onItemBlur={handleItemBlur}
+                  onItemClick={handleItemClick}
+                  updateFormat={updateFormat}
+                  updatePosition={updatePosition}
+                  deleteItem={deleteItem}
+                  addRedactionBox={addRedactionBox}
+                  updateRedactionBox={updateRedactionBox}
+                  deleteRedactionBox={deleteRedactionBox}
+                  updateSignature={updateSignature}
+                  deleteSignature={deleteSignature}
+                  updateStamp={updateStamp}
+                  deleteStamp={deleteStamp}
+                  matches={matches}
+                  currentMatchIndex={currentMatchIndex}
+                  scrollContainerRef={containerRef}
+                />
+              ))}
+            </div>
+
+            {/* Floating Current Page Indicator & Go To Page Control */}
+            <div style={{
+              position: 'sticky',
+              bottom: '1.25rem',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              pointerEvents: 'none',
+              zIndex: 90,
+              paddingRight: '1rem',
+            }}>
+              <div
+                className="page-indicator-pill"
+                onClick={e => {
+                  e.stopPropagation();
+                  setShowGoToPage(p => !p);
+                  setGoToPageInput(String(currentPage));
+                  setTimeout(() => goToInputRef.current?.select(), 50);
+                }}
+                style={{
+                  pointerEvents: 'auto',
+                  background: 'rgba(15, 15, 26, 0.85)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '2rem',
+                  padding: '0.45rem 0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  color: '#f0f0f0',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                }}
+                title="Click to Go To Page (Ctrl+G)"
+              >
+                <span style={{ color: '#4d6bfa' }}>Page</span>
+                <span style={{ color: '#fff' }}>{currentPage}</span>
+                <span style={{ color: 'rgba(240,240,240,0.4)' }}>/</span>
+                <span style={{ color: 'rgba(240,240,240,0.7)' }}>{totalPages}</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.1rem', marginLeft: '0.2rem' }}>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      scrollToPage(Math.max(1, currentPage - 1));
+                    }}
+                    disabled={currentPage <= 1}
+                    style={{ background: 'transparent', border: 'none', color: currentPage <= 1 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.7)', cursor: currentPage <= 1 ? 'default' : 'pointer', padding: 2, display: 'flex' }}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      scrollToPage(Math.min(totalPages, currentPage + 1));
+                    }}
+                    disabled={currentPage >= totalPages}
+                    style={{ background: 'transparent', border: 'none', color: currentPage >= totalPages ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.7)', cursor: currentPage >= totalPages ? 'default' : 'pointer', padding: 2, display: 'flex' }}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Go To Page Popover Modal */}
+            {showGoToPage && (
+              <div
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  background: 'rgba(0,0,0,0.5)',
+                  backdropFilter: 'blur(4px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10000,
+                }}
+                onClick={() => setShowGoToPage(false)}
+              >
                 <div
-                  className="pdf-canvas-wrapper"
-                  onPointerDown={handleCanvasPointerDown}
-                  onPointerMove={handleCanvasPointerMove}
-                  onPointerUp={handleCanvasPointerUp}
+                  className="card-glass"
+                  onClick={e => e.stopPropagation()}
                   style={{
-                    boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
-                    position: 'relative',
-                    userSelect: 'none',
-                    touchAction: 'none',
+                    width: 280,
+                    borderRadius: '1rem',
+                    padding: '1.25rem',
+                    boxShadow: '0 20px 40px rgba(0,0,0,0.7)',
+                    border: '1px solid rgba(77,107,250,0.4)',
                   }}
                 >
-                  <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 4 }} />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Go to Page</strong>
+                    <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.4)' }}>1 – {totalPages}</span>
+                  </div>
 
-                  {/* White cover-up boxes for deleted or moved text items */}
-                  {textItems.map(item => {
-                    if (item.isAdded) return null;
-                    const hasPosChange = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
-                    const isDeleted = !!item.isDeleted;
-                    if (!isDeleted && !hasPosChange) return null;
-
-                    return (
-                      <div
-                        key={`cover-${item.id}`}
-                        style={{
-                          position: 'absolute',
-                          left: item.originalX - 1,
-                          top: item.originalY - 1,
-                          width: item.width + 2,
-                          height: item.height + 2,
-                          background: '#ffffff',
-                          pointerEvents: 'none',
-                          zIndex: 2,
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* Redaction Boxes for Current Page (Blackout & Whiteout) */}
-                  {currentRedactions.map(box => {
-                    const isSelected = activeRedactionId === box.id;
-                    const isCurrentDragging = draggingRedactId === box.id;
-                    const boxX = isCurrentDragging && dragRedactPosition ? dragRedactPosition.x : box.x;
-                    const boxY = isCurrentDragging && dragRedactPosition ? dragRedactPosition.y : box.y;
-
-                    const isCurrentResizing = resizingRedactId === box.id;
-                    const boxW = isCurrentResizing && redactDimensions ? redactDimensions.w : box.width;
-                    const boxH = isCurrentResizing && redactDimensions ? redactDimensions.h : box.height;
-
-                    return (
-                      <div
-                        key={box.id}
-                        onPointerDown={e => {
-                          e.stopPropagation();
-                          handleRedactionDragStart(box.id, box.x, box.y, e);
-                        }}
-                        onClick={e => {
-                          e.stopPropagation();
-                          setActiveItem(null);
-                          setActiveSignature(null);
-                          setActiveStamp(null);
-                          setActiveRedaction(box.id);
-                        }}
-                        style={{
-                          position: 'absolute',
-                          left: boxX,
-                          top: boxY,
-                          width: boxW,
-                          height: boxH,
-                          background: box.type === 'blackout' ? '#000000' : '#ffffff',
-                          border: isSelected
-                            ? '2px solid #ef4444'
-                            : box.type === 'whiteout'
-                            ? '1px dashed rgba(77,107,250,0.5)'
-                            : '1px solid rgba(255,255,255,0.2)',
-                          boxShadow: isSelected ? '0 0 10px rgba(239,68,68,0.6)' : 'none',
-                          zIndex: 15,
-                          cursor: 'grab',
-                          touchAction: 'none',
-                        }}
-                      >
-                        {/* Delete Redaction Button */}
-                        {isSelected && (
-                          <button
-                            onPointerDown={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                            }}
-                            onClick={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              deleteRedactionBox(box.id);
-                              setActiveRedaction(null);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: -12,
-                              right: -12,
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              background: '#ef4444',
-                              color: '#fff',
-                              border: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-                              zIndex: 30,
-                            }}
-                            title={`Delete ${box.type === 'blackout' ? 'Blackout' : 'Whiteout'} Redaction`}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-
-                        {/* Resize Corner Handle */}
-                        {isSelected && (
-                          <div
-                            onPointerDown={e => {
-                              e.stopPropagation();
-                              handleRedactionResizeStart(box.id, box.width, box.height, e);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              bottom: -5,
-                              right: -5,
-                              width: 12,
-                              height: 12,
-                              borderRadius: '50%',
-                              background: box.type === 'blackout' ? '#ef4444' : '#4d6bfa',
-                              border: '2px solid #fff',
-                              cursor: 'nwse-resize',
-                              zIndex: 30,
-                              boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
-                              touchAction: 'none',
-                            }}
-                            title="Drag to resize redaction area"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Digital Signature Stamps for Current Page */}
-                  {currentSignatures.map(sig => {
-                    const isSelected = activeSignatureId === sig.id;
-                    const isCurrentDragging = draggingSigId === sig.id;
-                    const sigX = isCurrentDragging && dragSigPosition ? dragSigPosition.x : sig.x;
-                    const sigY = isCurrentDragging && dragSigPosition ? dragSigPosition.y : sig.y;
-
-                    const isCurrentResizing = resizingSigId === sig.id;
-                    const sigW = isCurrentResizing && sigDimensions ? sigDimensions.w : sig.width;
-                    const sigH = isCurrentResizing && sigDimensions ? sigDimensions.h : sig.height;
-
-                    return (
-                      <div
-                        key={sig.id}
-                        onClick={e => {
-                          e.stopPropagation();
-                          setActiveItem(null);
-                          setActiveRedaction(null);
-                          setActiveStamp(null);
-                          setActiveSignature(sig.id);
-                        }}
-                        onPointerDown={e => handleSignatureDragStart(sig.id, sig.x, sig.y, e)}
-                        style={{
-                          position: 'absolute',
-                          left: sigX,
-                          top: sigY,
-                          width: sigW,
-                          height: sigH,
-                          border: isSelected ? '2px dashed #4d6bfa' : '1px solid transparent',
-                          borderRadius: 4,
-                          boxShadow: isSelected ? '0 0 10px rgba(77,107,250,0.4)' : 'none',
-                          zIndex: 20,
-                          cursor: 'grab',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          touchAction: 'none',
-                        }}
-                      >
-                        <img
-                          src={sig.dataUrl}
-                          alt="Digital Signature"
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'contain',
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                          }}
-                        />
-
-                        {/* Delete Signature Button */}
-                        {isSelected && (
-                          <button
-                            onPointerDown={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                            }}
-                            onClick={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              deleteSignature(sig.id);
-                              setActiveSignature(null);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: -12,
-                              right: -12,
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              background: '#ef4444',
-                              color: '#fff',
-                              border: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                              zIndex: 30,
-                            }}
-                            title="Remove signature"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-
-                        {/* Resize Corner Handle */}
-                        {isSelected && (
-                          <div
-                            onPointerDown={e => handleSignatureResizeStart(sig.id, sig.width, sig.height, e)}
-                            style={{
-                              position: 'absolute',
-                              bottom: -6,
-                              right: -6,
-                              width: 14,
-                              height: 14,
-                              borderRadius: '50%',
-                              background: '#4d6bfa',
-                              border: '2px solid #fff',
-                              cursor: 'nwse-resize',
-                              zIndex: 30,
-                              boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                              touchAction: 'none',
-                            }}
-                            title="Drag to resize signature"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Official Stamps & Custom Images for Current Page */}
-                  {currentStamps.map(stamp => {
-                    const isSelected = activeStampId === stamp.id;
-                    const isCurrentDragging = draggingStampId === stamp.id;
-                    const stX = isCurrentDragging && dragStampPosition ? dragStampPosition.x : stamp.x;
-                    const stY = isCurrentDragging && dragStampPosition ? dragStampPosition.y : stamp.y;
-
-                    const isCurrentResizing = resizingStampId === stamp.id;
-                    const stW = isCurrentResizing && stampDimensions ? stampDimensions.w : stamp.width;
-                    const stH = isCurrentResizing && stampDimensions ? stampDimensions.h : stamp.height;
-
-                    return (
-                      <div
-                        key={stamp.id}
-                        onClick={e => {
-                          e.stopPropagation();
-                          setActiveItem(null);
-                          setActiveRedaction(null);
-                          setActiveSignature(null);
-                          setActiveStamp(stamp.id);
-                        }}
-                        onPointerDown={e => handleStampDragStart(stamp.id, stamp.x, stamp.y, e)}
-                        style={{
-                          position: 'absolute',
-                          left: stX,
-                          top: stY,
-                          width: stW,
-                          height: stH,
-                          transform: `rotate(${stamp.rotation}deg)`,
-                          opacity: stamp.opacity,
-                          border: isSelected ? '2px dashed #4ade80' : '1px solid transparent',
-                          borderRadius: 6,
-                          boxShadow: isSelected ? '0 0 12px rgba(74,222,128,0.4)' : 'none',
-                          zIndex: 22,
-                          cursor: 'grab',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          touchAction: 'none',
-                        }}
-                      >
-                        <img
-                          src={stamp.dataUrl}
-                          alt={stamp.label || 'Stamp'}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'contain',
-                            pointerEvents: 'none',
-                            userSelect: 'none',
-                          }}
-                        />
-
-                        {/* Delete Stamp Button */}
-                        {isSelected && (
-                          <button
-                            onPointerDown={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                            }}
-                            onClick={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              deleteStamp(stamp.id);
-                              setActiveStamp(null);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: -12,
-                              right: -12,
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              background: '#ef4444',
-                              color: '#fff',
-                              border: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                              zIndex: 30,
-                            }}
-                            title="Remove stamp"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-
-                        {/* Quick Rotate Action Handle */}
-                        {isSelected && (
-                          <button
-                            onPointerDown={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                            }}
-                            onClick={e => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              const ROTATION_STEPS = [-15, 0, 15, 45, 90, -90];
-                              const currentIndex = ROTATION_STEPS.indexOf(stamp.rotation);
-                              const nextRotation = ROTATION_STEPS[(currentIndex + 1) % ROTATION_STEPS.length] ?? 0;
-                              updateStamp(stamp.id, { rotation: nextRotation });
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: -12,
-                              left: -12,
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              background: '#4d6bfa',
-                              color: '#fff',
-                              border: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                              zIndex: 30,
-                            }}
-                            title="Click to cycle rotation angle"
-                          >
-                            <RotateCw size={12} />
-                          </button>
-                        )}
-
-                        {/* Resize Corner Handle */}
-                        {isSelected && (
-                          <div
-                            onPointerDown={e => handleStampResizeStart(stamp.id, stamp.width, stamp.height, e)}
-                            style={{
-                              position: 'absolute',
-                              bottom: -6,
-                              right: -6,
-                              width: 14,
-                              height: 14,
-                              borderRadius: '50%',
-                              background: '#4ade80',
-                              border: '2px solid #fff',
-                              cursor: 'nwse-resize',
-                              zIndex: 30,
-                              boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                              touchAction: 'none',
-                            }}
-                            title="Drag to resize stamp"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* In-progress Dragging Redaction Box Preview */}
-                  {isDrawingRedaction && currentRect && (
-                    <div
+                  <form onSubmit={handleGoToPageSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input
+                      ref={goToInputRef}
+                      type="number"
+                      min={1}
+                      max={totalPages}
+                      value={goToPageInput}
+                      onChange={e => setGoToPageInput(e.target.value)}
+                      placeholder={`1..${totalPages}`}
+                      autoFocus
+                      className="input-dark"
                       style={{
-                        position: 'absolute',
-                        left: currentRect.x,
-                        top: currentRect.y,
-                        width: currentRect.w,
-                        height: currentRect.h,
-                        background: state.activeTool === 'blackout' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
-                        border: `2px dashed ${state.activeTool === 'blackout' ? '#ef4444' : '#4d6bfa'}`,
-                        zIndex: 25,
-                        pointerEvents: 'none',
+                        flex: 1,
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.9rem',
+                        textAlign: 'center',
+                        fontWeight: 700,
                       }}
                     />
-                  )}
-
-                  {/* Text overlays */}
-                  {textItems.filter(item => !item.isDeleted).map(item => {
-                    const isActive = activeItemId === item.id;
-                    const currentVal = editValues[item.id] ?? item.editedText;
-                    const isEdited = currentVal !== item.originalText;
-                    const isFormatted = item.format.bold ||
-                                        item.format.italic ||
-                                        item.format.underline ||
-                                        item.format.fontFamily !== 'helvetica' ||
-                                        item.format.fontSizeDelta !== 0 ||
-                                        item.format.color !== '#000000' ||
-                                        item.format.link !== '';
-                    const hasPosChange = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
-                    const hasChanges = isEdited || isFormatted || hasPosChange || !!item.isAdded;
-
-                    const isCurrentDragging = draggingId === item.id;
-                    const itemX = isCurrentDragging && dragPosition ? dragPosition.x : item.x;
-                    const itemY = isCurrentDragging && dragPosition ? dragPosition.y : item.y;
-
-                    // Find & Replace match highlight check
-                    const isMatch = matches.some(m => m.itemId === item.id && m.pageNumber === currentPage);
-                    const isCurrentMatch = matches[currentMatchIndex]?.itemId === item.id && matches[currentMatchIndex]?.pageNumber === currentPage;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className={`text-overlay-item${isActive ? ' active' : ''}`}
-                        style={{
-                          left: itemX,
-                          top: itemY,
-                          minWidth: item.width,
-                          width: hasChanges || isActive ? 'max-content' : item.width,
-                          minHeight: item.height,
-                          height: item.height,
-                          fontSize: item.fontSize + item.format.fontSizeDelta,
-                          lineHeight: 1,
-                          background: isActive
-                            ? '#ffffff'
-                            : isCurrentMatch
-                            ? 'rgba(254,240,138,0.5)'
-                            : isMatch
-                            ? 'rgba(254,240,138,0.25)'
-                            : (hasChanges && !item.isAdded ? '#ffffff' : undefined),
-                          boxShadow: isCurrentMatch
-                            ? '0 0 0 2px #f59e0b, 0 0 12px rgba(245,158,11,0.6)'
-                            : isMatch
-                            ? '0 0 0 1px #eab308'
-                            : undefined,
-                          borderColor: !isActive && hasChanges ? 'rgba(77, 107, 250, 0.5)' : undefined,
-                          overflow: 'visible',
-                          zIndex: isCurrentMatch ? 12 : hasChanges || isActive ? 10 : 1,
-                        }}
-                        onClick={e => handleItemClick(item.id, e)}
-                        title={hasChanges ? `Edited — click to re-edit` : 'Click to edit'}
-                      >
-                        {isActive ? (
-                          <>
-                            <div
-                              className="drag-handle"
-                              onPointerDown={e => handleDragPointerDown(item.id, item.x, item.y, e)}
-                              style={{
-                                position: 'absolute',
-                                left: -20,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                cursor: 'grab',
-                                display: 'flex',
-                                alignItems: 'center',
-                                padding: '2px',
-                                color: '#4d6bfa',
-                                zIndex: 100,
-                                touchAction: 'none',
-                              }}
-                              title="Drag to reposition text"
-                            >
-                              <GripVertical size={14} />
-                            </div>
-
-                            {(() => {
-                              const canvas = canvasRef.current;
-                              const canvasWidth = canvas ? canvas.width : 2000;
-                              const toolbarWidth = 380;
-                              const preferredLeftAbs = itemX + item.width / 2 - toolbarWidth / 2;
-                              const clampedLeftAbs = Math.max(10, Math.min(canvasWidth - toolbarWidth - 10, preferredLeftAbs));
-                              const toolbarLeftRel = clampedLeftAbs - itemX;
-
-                              return (
-                                <TextFormatToolbar
-                                  item={item}
-                                  onUpdateFormat={updateFormat}
-                                  onDelete={deleteItem}
-                                  style={{
-                                    left: `${toolbarLeftRel}px`,
-                                    transform: 'none',
-                                  }}
-                                />
-                              );
-                            })()}
-
-                            <input
-                              className="text-overlay-input"
-                              autoFocus
-                              value={currentVal}
-                              size={Math.max(currentVal.length + 2, 8)}
-                              onChange={e => handleInputChange(item.id, e.target.value)}
-                              onBlur={() => handleBlur(item.id)}
-                              onClick={e => e.stopPropagation()}
-                              onKeyDown={e => {
-                                if (e.key === 'Escape') {
-                                  if (cancelTextEdit) cancelTextEdit(item.id);
-                                  (e.target as HTMLInputElement).blur();
-                                } else if (e.key === 'Enter') {
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              style={{
-                                fontSize: item.fontSize + item.format.fontSizeDelta,
-                                lineHeight: 1,
-                                minWidth: Math.max(item.width, 80),
-                                fontWeight: item.format.bold ? 'bold' : 'normal',
-                                fontStyle: item.format.italic ? 'italic' : 'normal',
-                                textDecoration: item.format.underline ? 'underline' : 'none',
-                                fontFamily: item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : item.format.fontFamily === 'courier' ? '"Courier New", Courier, monospace' : 'Helvetica, Arial, sans-serif',
-                                color: item.format.color,
-                              }}
-                            />
-                          </>
-                        ) : hasChanges ? (
-                          <span style={{
-                            display: 'block',
-                            width: 'max-content',
-                            fontSize: item.fontSize + item.format.fontSizeDelta,
-                            lineHeight: 1,
-                            color: item.format.color,
-                            fontWeight: item.format.bold ? 'bold' : 'normal',
-                            fontStyle: item.format.italic ? 'italic' : 'normal',
-                            textDecoration: item.format.underline ? 'underline' : 'none',
-                            fontFamily: item.format.fontFamily === 'times' ? 'Georgia, "Times New Roman", Times, serif' : item.format.fontFamily === 'courier' ? '"Courier New", Courier, monospace' : 'Helvetica, Arial, sans-serif',
-                            whiteSpace: 'nowrap',
-                            userSelect: 'none',
-                            padding: '0 2px',
-                          }}>
-                            {currentVal}
-                          </span>
-                        ) : (
-                          <span style={{
-                            fontSize: item.fontSize,
-                            lineHeight: 1,
-                            opacity: 0,
-                            userSelect: 'none',
-                            display: 'block',
-                            width: '100%',
-                            height: '100%',
-                          }}>
-                            {item.originalText}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      style={{ padding: '0.45rem 1rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}
+                    >
+                      <span>Go</span> <ArrowRight size={13} />
+                    </button>
+                  </form>
                 </div>
               </div>
             )}
           </div>
         </div>
-
-        {/* Status / Summary Badge */}
-        {isDirty && (
-          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem', color: 'rgba(240,240,240,0.55)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 6px #4ade80' }} />
-              <span>Document modified across {Object.keys(state.pageItems).length || 1} page(s)</span>
-              {allRedactionCount > 0 && (
-                <span style={{ color: '#fca5a5', fontWeight: 600 }}>· {allRedactionCount} Redaction(s)</span>
-              )}
-              {allSignatureCount > 0 && (
-                <span style={{ color: '#7c9aff', fontWeight: 600 }}>· {allSignatureCount} Signature(s)</span>
-              )}
-              {allStampCount > 0 && (
-                <span style={{ color: '#4ade80', fontWeight: 600 }}>· {allStampCount} Stamp(s)</span>
-              )}
-            </div>
-            <div>
-              Ready to export · 100% In-Browser Sanitization, Signing & Stamping
-            </div>
-          </div>
-        )}
-
       </div>
 
-      {/* Signature Creator Modal */}
+      {/* Signature Placement Modal */}
       <SignatureModal
         isOpen={showSignatureModal}
         onClose={() => setShowSignatureModal(false)}
-        onInsert={handleSignatureInserted}
+        onInsert={(dataUrl, width, height) => {
+          const defaultWidth = (width || 180) * scale;
+          const defaultHeight = (height || 65) * scale;
+          const defaultX = 100;
+          const defaultY = 150;
+
+          addSignature({
+            dataUrl,
+            x: defaultX,
+            y: defaultY,
+            width: defaultWidth,
+            height: defaultHeight,
+            pageIndex: currentPage,
+          });
+        }}
       />
 
-      {/* Stamp & Image Creator Modal */}
+      {/* Official Stamps & Image Inserter Modal */}
       <StampModal
         isOpen={showStampModal}
         onClose={() => setShowStampModal(false)}
-        onInsert={handleStampInserted}
+        onInsert={(dataUrl, width, height, rotation, opacity, label) => {
+          const defaultX = 120;
+          const defaultY = 160;
+
+          addStamp({
+            type: label ? 'preset-stamp' : 'custom-image',
+            dataUrl,
+            label,
+            x: defaultX,
+            y: defaultY,
+            width: (width || 140) * scale,
+            height: (height || 48) * scale,
+            rotation: rotation || 0,
+            opacity: opacity ?? 0.95,
+            pageIndex: currentPage,
+          });
+        }}
       />
 
-      {/* Export & Sanitization Settings Modal */}
+      {/* Export / Download Modal */}
       {showExportModal && (
         <div style={{
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.75)',
-          backdropFilter: 'blur(8px)',
+          backdropFilter: 'blur(6px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -1669,7 +935,7 @@ export default function PDFEditor({
           padding: '1.5rem',
         }}>
           <div className="card-glass" style={{
-            maxWidth: 560,
+            maxWidth: 580,
             width: '100%',
             borderRadius: '1.25rem',
             padding: '2rem',
@@ -1677,21 +943,15 @@ export default function PDFEditor({
             border: '1px solid rgba(255,255,255,0.15)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(77,107,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Download size={20} color="#4d6bfa" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: '#f0f0f0' }}>Export Sanitized PDF</h3>
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)' }}>Select forensic export mode for your document</p>
-                </div>
-              </div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#f0f0f0' }}>
+                Export & Download PDF
+              </h3>
               <button className="btn-icon" onClick={() => setShowExportModal(false)}>
                 <X size={16} />
               </button>
             </div>
 
-            {/* Redaction Safety Warning Banner */}
+            {/* Warning if Blackout Redactions exist */}
             {hasBlackoutRedactions && (
               <div style={{
                 background: 'rgba(239,68,68,0.15)',

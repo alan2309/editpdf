@@ -18,7 +18,7 @@ function MainApp() {
   const { currentPath } = useRouter();
 
   const {
-    state, loadPDF, renderPage,
+    state, loadPDF, renderPage, cancelPageRender,
     beginTextEdit, updateTextWithoutHistory, commitTextEdit, cancelTextEdit,
     updateText, updateFormat, updatePosition, deleteItem,
     addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
@@ -80,6 +80,7 @@ function MainApp() {
           <PDFEditor
             state={state}
             renderPage={renderPage}
+            cancelPageRender={cancelPageRender}
             beginTextEdit={beginTextEdit}
             updateTextWithoutHistory={updateTextWithoutHistory}
             commitTextEdit={commitTextEdit}

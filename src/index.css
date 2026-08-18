@@ -223,6 +223,40 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* ============ Continuous PDF Scrolling Workspace ============ */
+.document-scroll-container {
+  overflow-y: auto;
+  overflow-x: auto;
+  height: 100%;
+  width: 100%;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.document-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 8px;
+}
+
+.pdf-page-container {
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.2s ease;
+  max-width: 100%;
+}
+
+.pdf-page-container:hover {
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(77, 107, 250, 0.15);
+}
+
+.page-indicator-pill:hover {
+  border-color: #4d6bfa !important;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.65), 0 0 16px rgba(77, 107, 250, 0.25) !important;
+}
+
 /* ============ Responsive: Mobile (< 768px) ============ */
 @media (max-width: 767px) {
   /* Show hamburger button, hide desktop nav */
@@ -251,6 +285,11 @@ body {
     flex-direction: column !important;
     text-align: center !important;
     gap: 0.75rem !important;
+  }
+
+  .document-stack {
+    padding: 8px 0;
+    gap: 16px;
   }
 }
 

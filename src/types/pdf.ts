@@ -119,6 +119,7 @@ export interface PDFEditorState {
   totalPages: number;
   currentPage: number;
   scale: number;
+  pageDimensions: Record<number, { width: number; height: number; rotation: number }>;
   textItems: PDFTextItem[];
   pageItems: Record<number, PDFTextItem[]>;
   redactions: Record<number, RedactionBox[]>;
@@ -139,3 +140,4 @@ export interface PDFEditorState {
   isExporting: boolean;
   error: string | null;
 }
+
