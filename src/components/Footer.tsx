@@ -1,4 +1,4 @@
-import { FileText, Shield, ExternalLink, Lock, CheckCircle } from 'lucide-react';
+import { FileText, ExternalLink, Lock, CheckCircle } from 'lucide-react';
 import { CustomLink } from '../context/RouterContext';
 
 export default function Footer() {

@@ -193,18 +193,18 @@ export default function SplitPdfPage() {
             {mode === 'ranges' && (
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'rgba(240,240,240,0.7)', marginBottom: '0.4rem' }}>
-                  Define Page Range Bundles (comma or semicolon separated):
+                  Define Split Groups (One bundle per line, or comma/semicolon separated):
                 </label>
-                <input
-                  type="text"
+                <textarea
                   className="input-dark"
                   value={ranges}
                   onChange={e => setRanges(e.target.value)}
-                  placeholder="e.g. 1-3, 4-6, 7-10"
-                  style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.9rem' }}
+                  placeholder={'1-5, 8\n9-12\n15-20'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.9rem', resize: 'vertical' }}
                 />
                 <div style={{ fontSize: '0.72rem', color: 'rgba(240,240,240,0.45)', marginTop: '0.35rem' }}>
-                  Each group generates a separate PDF bundle.
+                  Each line produces a separate PDF file. E.g. line 1: &quot;1-5, 8&quot; produces part-1.pdf containing those pages.
                 </div>
               </div>
             )}

@@ -9,8 +9,10 @@ import type {
 import { DEFAULT_FORMAT } from '../types/pdf';
 import { calculateSubstringBox } from '../utils/textMetrics';
 
+import { PDFJS_WORKER_URL, PDFJS_CMAP_URL, PDFJS_CMAP_PACKED, PDF_MAX_FILE_SIZE } from '../pdf/pdfConfig';
+
 // Worker served locally from /public to avoid CDN version mismatch
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
 
 const DEFAULT_SCALE = 1.5;
 
@@ -241,7 +243,7 @@ export function usePDFEditor() {
         throw new Error('The selected file is empty. Please select a valid PDF.');
       }
 
-      if (file.size > 100 * 1024 * 1024) {
+      if (file.size > PDF_MAX_FILE_SIZE) {
         throw new Error('File size exceeds the 100 MB limit. Please select a smaller PDF.');
       }
 
@@ -257,8 +259,8 @@ export function usePDFEditor() {
 
       const loadingTask = pdfjsLib.getDocument({
         data: buffer.slice(0),
-        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/cmaps/',
-        cMapPacked: true,
+        cMapUrl: PDFJS_CMAP_URL,
+        cMapPacked: PDFJS_CMAP_PACKED,
       });
 
       const pdfDoc = await loadingTask.promise;

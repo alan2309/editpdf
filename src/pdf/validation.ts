@@ -1,5 +1,7 @@
-export const MAX_PDF_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB default
-export const MAX_IMAGE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB default
+import { PDF_MAX_FILE_SIZE, IMAGE_MAX_FILE_SIZE } from './pdfConfig';
+
+export const MAX_PDF_SIZE_BYTES = PDF_MAX_FILE_SIZE;
+export const MAX_IMAGE_SIZE_BYTES = IMAGE_MAX_FILE_SIZE;
 
 export interface ValidationResult {
   isValid: boolean;

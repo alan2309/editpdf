@@ -3,8 +3,12 @@ export interface ParseRangeResult {
   error?: string;
 }
 
+const SINGLE_PAGE_REGEX = /^\d+$/;
+const PAGE_RANGE_REGEX = /^(\d+)\s*-\s*(\d+)$/;
+
 /**
  * Parses a page range string like "1-5, 8, 10-12" into an array of 1-indexed page numbers.
+ * Enforces strict syntax checking to prevent malformed numeric inputs (e.g., '12abc', '1.5', '0', '-5').
  *
  * @param input The raw input string
  * @param totalPages The total number of pages in the document
@@ -31,18 +35,14 @@ export function parsePageRanges(
   const pageList: number[] = [];
 
   for (const token of rawTokens) {
-    // Check if it's a range "X-Y"
-    if (token.includes('-')) {
-      const parts = token.split('-');
-      if (parts.length !== 2) {
-        return { pages: [], error: `Invalid range format: "${token}". Expected "start-end".` };
-      }
+    // Check if it matches strict range "X-Y"
+    const rangeMatch = token.match(PAGE_RANGE_REGEX);
+    if (rangeMatch) {
+      const start = Number(rangeMatch[1]);
+      const end = Number(rangeMatch[2]);
 
-      const start = parseInt(parts[0].trim(), 10);
-      const end = parseInt(parts[1].trim(), 10);
-
-      if (isNaN(start) || isNaN(end)) {
-        return { pages: [], error: `Invalid numbers in range: "${token}".` };
+      if (!Number.isInteger(start) || !Number.isInteger(end)) {
+        return { pages: [], error: `Invalid range format: "${token}".` };
       }
 
       if (start < 1) {
@@ -60,12 +60,12 @@ export function parsePageRanges(
       for (let p = start; p <= end; p++) {
         pageList.push(p);
       }
-    } else {
-      // Single page number
-      const pageNum = parseInt(token, 10);
-      if (isNaN(pageNum)) {
-        return { pages: [], error: `"${token}" is not a valid page number.` };
-      }
+      continue;
+    }
+
+    // Check if it matches strict single page integer "X"
+    if (SINGLE_PAGE_REGEX.test(token)) {
+      const pageNum = Number(token);
 
       if (pageNum < 1) {
         return { pages: [], error: `Page number ${pageNum} is invalid. Page numbers start at 1.` };
@@ -76,7 +76,11 @@ export function parsePageRanges(
       }
 
       pageList.push(pageNum);
+      continue;
     }
+
+    // Otherwise it is malformed (e.g., '12abc', '1.5', '1foo-5', '-5', '5-')
+    return { pages: [], error: `Invalid page specification: "${token}". Expected a positive number or range (e.g. 1-5).` };
   }
 
   let finalPages = pageList;
@@ -93,15 +97,25 @@ export function parsePageRanges(
 }
 
 /**
- * Splits a range bundle string like "1-5, 6-10, 11-20" or "1-3; 4-6" into separate page groups.
+ * Splits multi-group definitions (one per line, or separated by semicolons)
+ * Example input:
+ *   1-5, 8
+ *   10-15
+ *   20
+ * Produces groups: [[1,2,3,4,5,8], [10,11,12,13,14,15], [20]]
  */
 export function parseSplitGroups(input: string, totalPages: number): { groups: number[][]; error?: string } {
   if (!input || !input.trim()) {
     return { groups: [], error: 'Please enter page ranges to split.' };
   }
 
-  // Allow semicolon or newline or comma between group ranges
-  const groupTokens = input.includes(';') ? input.split(';') : input.includes('\n') ? input.split('\n') : input.split(',');
+  // Split by newlines or semicolons first
+  const groupTokens = input.includes('\n')
+    ? input.split('\n')
+    : input.includes(';')
+    ? input.split(';')
+    : [input];
+
   const groups: number[][] = [];
 
   for (const groupStr of groupTokens) {

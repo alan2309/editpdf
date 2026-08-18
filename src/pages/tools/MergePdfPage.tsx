@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Layers, Combine, AlertCircle } from 'lucide-react';
+import { Combine, AlertCircle } from 'lucide-react';
 import ToolHeader from '../../components/toolbox/ToolHeader';
 import FileDropzone from '../../components/toolbox/FileDropzone';
 import PDFFileList from '../../components/toolbox/PDFFileList';

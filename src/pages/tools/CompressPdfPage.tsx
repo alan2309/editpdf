@@ -98,28 +98,28 @@ export default function CompressPdfPage() {
           {/* Compression Level Presets */}
           <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '1rem', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f0f0f0' }}>
-              Compression Preset:
+              Compression Mode:
             </label>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem' }}>
               <div
                 onClick={() => {
-                  setLevel('maximum');
-                  setTargetDpi(100);
+                  setLevel('high-quality');
+                  setTargetDpi(200);
                 }}
                 style={{
                   padding: '1rem',
                   borderRadius: '0.75rem',
-                  border: `1.5px solid ${level === 'maximum' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
-                  background: level === 'maximum' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
+                  border: `1.5px solid ${level === 'high-quality' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  background: level === 'high-quality' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Maximum</strong>
+                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Basic (Safe)</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Smallest file size. Ideal for emails and uploads. (100 DPI)
+                  Optimizes streams while 100% preserving vector text, fonts & links.
                 </div>
               </div>
 
@@ -144,31 +144,37 @@ export default function CompressPdfPage() {
                   <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Balanced</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Great size reduction with crisp reading clarity. (150 DPI)
+                  Cleans unreferenced objects and compresses cross-reference streams.
                 </div>
               </div>
 
               <div
                 onClick={() => {
-                  setLevel('high-quality');
-                  setTargetDpi(200);
+                  setLevel('maximum');
+                  setTargetDpi(100);
                 }}
                 style={{
                   padding: '1rem',
                   borderRadius: '0.75rem',
-                  border: `1.5px solid ${level === 'high-quality' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
-                  background: level === 'high-quality' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
+                  border: `1.5px solid ${level === 'maximum' ? '#4d6bfa' : 'rgba(255,255,255,0.08)'}`,
+                  background: level === 'maximum' ? 'rgba(77,107,250,0.15)' : 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>High Quality</strong>
+                  <strong style={{ fontSize: '0.9rem', color: '#f0f0f0' }}>Maximum</strong>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.5)', lineHeight: 1.4 }}>
-                  Optimizes internal streams while preserving vector text.
+                  Downsamples pages at 100 DPI for smallest size.
                 </div>
               </div>
             </div>
+
+            {level === 'maximum' && (
+              <div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.65rem', color: '#fcd34d', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                ⚠️ <strong>Notice:</strong> Maximum compression rasterizes pages to achieve extreme file size reduction. Selectable text and interactive links will become image-based.
+              </div>
+            )}
           </div>
 
           {error && (

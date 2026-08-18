@@ -1,9 +1,10 @@
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
+import { PDFJS_WORKER_URL } from './pdfConfig';
 
 // Ensure PDF.js worker is properly configured
 if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
 }
 
 export interface LoadedPdfDoc {

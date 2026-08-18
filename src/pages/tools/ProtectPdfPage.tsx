@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Lock, FileText, AlertCircle, ShieldAlert } from 'lucide-react';
+import { Lock, FileText, AlertCircle } from 'lucide-react';
 import ToolHeader from '../../components/toolbox/ToolHeader';
 import FileDropzone from '../../components/toolbox/FileDropzone';
 import ProcessingProgress from '../../components/toolbox/ProcessingProgress';
@@ -14,6 +14,7 @@ export default function ProtectPdfPage() {
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [restrictPrinting, setRestrictPrinting] = useState<boolean>(true);
   const [restrictCopying, setRestrictCopying] = useState<boolean>(true);
+  const [restrictEditing, setRestrictEditing] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
@@ -24,8 +25,8 @@ export default function ProtectPdfPage() {
   const handleProtect = async () => {
     if (!file) return;
 
-    if (!password || password.length < 4) {
-      setError('Password must be at least 4 characters long.');
+    if (!password || password.length < 3) {
+      setError('Password must be at least 3 characters long.');
       return;
     }
 
@@ -47,7 +48,7 @@ export default function ProtectPdfPage() {
           permissions: {
             printing: !restrictPrinting,
             copying: !restrictCopying,
-            modifying: false,
+            modifying: !restrictEditing,
           },
         },
         (p, msg) => {
@@ -78,7 +79,7 @@ export default function ProtectPdfPage() {
     <div style={{ maxWidth: 1080, margin: '0 auto', padding: '3rem 1.25rem 6rem' }}>
       <ToolHeader
         title="Protect PDF Document"
-        description="Harden document privacy, sanitize author tracking metadata, and configure access security restrictions entirely in your browser."
+        description="Add password encryption to your PDF and configure printing, copying, and modification restrictions. 100% private in-browser document processing."
         icon={<Lock size={24} />}
       />
 
@@ -91,7 +92,7 @@ export default function ProtectPdfPage() {
           acceptType="pdf"
           multiple={false}
           onFilesSelected={files => files[0] && setFile(files[0])}
-          title="Select PDF to Protect"
+          title="Select PDF to Protect with Password"
         />
       ) : (
         <div style={{ width: '100%', maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -145,18 +146,27 @@ export default function ProtectPdfPage() {
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
               <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f0f0f0' }}>
-                Permissions & Hardening:
+                Permissions & Security Restrictions:
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(240,240,240,0.8)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={restrictPrinting} onChange={e => setRestrictPrinting(e.target.checked)} />
-                <span>Sanitize and restrict unauthorized print requests</span>
+                <span>Restrict printing</span>
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(240,240,240,0.8)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={restrictCopying} onChange={e => setRestrictCopying(e.target.checked)} />
-                <span>Sanitize author, creator, and location tracking metadata</span>
+                <span>Restrict copying text &amp; images</span>
               </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'rgba(240,240,240,0.8)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={restrictEditing} onChange={e => setRestrictEditing(e.target.checked)} />
+                <span>Restrict editing &amp; modifications</span>
+              </label>
+            </div>
+
+            <div style={{ padding: '0.65rem 0.85rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.6rem', color: '#86efac', fontSize: '0.78rem' }}>
+              🔒 Your PDF is processed locally in your browser. It is not uploaded.
             </div>
           </div>
 

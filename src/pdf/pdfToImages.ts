@@ -3,6 +3,7 @@ import type { OperationResult, ProgressCallback, PdfToImageOptions } from './typ
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
 import { createZip } from './zip';
+import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfConfig';
 
 export async function convertPdfToImages(
   file: File,
@@ -23,8 +24,8 @@ export async function convertPdfToImages(
 
   const pdfjsDoc = await pdfjsLib.getDocument({
     data: new Uint8Array(fileBuffer),
-    cMapUrl: '/cmaps/',
-    cMapPacked: true,
+    cMapUrl: PDFJS_CMAP_URL,
+    cMapPacked: PDFJS_CMAP_PACKED,
   }).promise;
 
   const totalPages = pdfjsDoc.numPages;

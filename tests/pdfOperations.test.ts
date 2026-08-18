@@ -7,6 +7,8 @@ import { reorderPages } from '../src/pdf/reorderPages';
 import { rotatePages } from '../src/pdf/rotatePages';
 import { addWatermarkToPdf } from '../src/pdf/watermarkPdf';
 import { addPageNumbersToPdf } from '../src/pdf/pageNumbers';
+import { flattenPdf } from '../src/pdf/flattenPdf';
+import { protectPdf } from '../src/pdf/protectPdf';
 
 async function createSamplePdfFile(pageCount = 3, name = 'sample.pdf'): Promise<File> {
   const doc = await PDFDocument.create();
@@ -14,7 +16,7 @@ async function createSamplePdfFile(pageCount = 3, name = 'sample.pdf'): Promise<
     doc.addPage([595, 842]);
   }
   const bytes = await doc.save();
-  return new File([bytes], name, { type: 'application/pdf' });
+  return new File([bytes as BlobPart], name, { type: 'application/pdf' });
 }
 
 describe('pdf operations', () => {
@@ -93,5 +95,34 @@ describe('pdf operations', () => {
 
     expect(result.fileName).toBe('doc-numbered.pdf');
     expect(result.blob.size).toBeGreaterThan(0);
+  });
+
+  it('performs non-destructive structural flattening', async () => {
+    const file = await createSamplePdfFile(2, 'form.pdf');
+    const result = await flattenPdf(file);
+
+    expect(result.fileName).toBe('form-flattened.pdf');
+    expect(result.pageCount).toBe(2);
+    expect(result.blob.size).toBeGreaterThan(0);
+  });
+
+  it('applies genuine standard PDF encryption with /Encrypt dictionary', async () => {
+    const file = await createSamplePdfFile(2, 'secret.pdf');
+    const result = await protectPdf(file, {
+      password: 'mypassword123',
+      permissions: {
+        printing: false,
+        copying: false,
+        modifying: false,
+      },
+    });
+
+    expect(result.fileName).toBe('secret-protected.pdf');
+    expect(result.blob.size).toBeGreaterThan(0);
+
+    const buffer = await result.blob.arrayBuffer();
+    const text = new TextDecoder('latin1').decode(buffer);
+    expect(text.includes('/Encrypt')).toBe(true);
+    expect(text.includes('/Filter /Standard')).toBe(true);
   });
 });
