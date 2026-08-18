@@ -21,6 +21,7 @@ function MainApp() {
     state, loadPDF, renderPage, updateText, updateFormat, updatePosition, deleteItem,
     addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
     addSignature, updateSignature, deleteSignature, setActiveSignature,
+    addStamp, updateStamp, deleteStamp, setActiveStamp,
     setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
     setVerifyOnExport, setVerificationReport, runStandaloneVerification,
     undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
@@ -88,6 +89,10 @@ function MainApp() {
             updateSignature={updateSignature}
             deleteSignature={deleteSignature}
             setActiveSignature={setActiveSignature}
+            addStamp={addStamp}
+            updateStamp={updateStamp}
+            deleteStamp={deleteStamp}
+            setActiveStamp={setActiveStamp}
             setActiveRedaction={setActiveRedaction}
             setActiveTool={setActiveTool}
             setExportMode={setExportMode}

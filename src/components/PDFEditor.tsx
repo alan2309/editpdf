@@ -2,14 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info,
   GripVertical, Plus, ShieldCheck, EyeOff, Eraser, MousePointer,
-  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool
+  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool, Tag, RotateCw
 } from 'lucide-react';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
-  ExportMode, VerificationReport, PDFSignatureItem
+  ExportMode, VerificationReport, PDFSignatureItem, PDFStampItem
 } from '../types/pdf';
 import TextFormatToolbar from './TextFormatToolbar';
 import SignatureModal from './SignatureModal';
+import StampModal from './StampModal';
 
 interface PDFEditorProps {
   state: PDFEditorState;
@@ -26,6 +27,10 @@ interface PDFEditorProps {
   updateSignature: (id: string, partial: Partial<PDFSignatureItem>) => void;
   deleteSignature: (id: string) => void;
   setActiveSignature: (id: string | null) => void;
+  addStamp: (stamp: Omit<PDFStampItem, 'id' | 'pageIndex'> & { pageIndex?: number }) => void;
+  updateStamp: (id: string, partial: Partial<PDFStampItem>) => void;
+  deleteStamp: (id: string) => void;
+  setActiveStamp: (id: string | null) => void;
   setActiveRedaction: (id: string | null) => void;
   setActiveTool: (tool: EditorTool) => void;
   setExportMode: (mode: ExportMode) => void;
@@ -50,6 +55,7 @@ export default function PDFEditor({
   state, renderPage, updateText, updateFormat, updatePosition, deleteItem,
   addTextField, addRedactionBox, updateRedactionBox: _updateRedactionBox, deleteRedactionBox,
   addSignature, updateSignature, deleteSignature, setActiveSignature,
+  addStamp, updateStamp, deleteStamp, setActiveStamp,
   setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
   setVerifyOnExport, setVerificationReport, runStandaloneVerification,
   undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
@@ -60,6 +66,7 @@ export default function PDFEditor({
   const [showFontNote, setShowFontNote] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [showStampModal, setShowStampModal] = useState(false);
 
   // Dragging State for Text
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -74,6 +81,15 @@ export default function PDFEditor({
   const [resizingSigId, setResizingSigId] = useState<string | null>(null);
   const [sigDimensions, setSigDimensions] = useState<{ w: number; h: number } | null>(null);
   const resizeSigStartRef = useRef<{ mouseX: number; mouseY: number; startW: number; startH: number; ratio: number } | null>(null);
+
+  // Dragging / Resizing State for Stamps & Images
+  const [draggingStampId, setDraggingStampId] = useState<string | null>(null);
+  const [dragStampPosition, setDragStampPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragStampStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  const [resizingStampId, setResizingStampId] = useState<string | null>(null);
+  const [stampDimensions, setStampDimensions] = useState<{ w: number; h: number } | null>(null);
+  const resizeStampStartRef = useRef<{ mouseX: number; mouseY: number; startW: number; startH: number; ratio: number } | null>(null);
 
   // Drawing Redaction Box State
   const [isDrawingRedaction, setIsDrawingRedaction] = useState(false);
@@ -124,6 +140,7 @@ export default function PDFEditor({
         setActiveItem(null);
         setActiveRedaction(null);
         setActiveSignature(null);
+        setActiveStamp(null);
         setActiveTool('select');
         setIsDrawingRedaction(false);
         setDrawStart(null);
@@ -133,7 +150,7 @@ export default function PDFEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveSignature, setActiveTool]);
+  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp, setActiveTool]);
 
   // Handle Drag Move Action for text items
   const handleDragMouseDown = useCallback((id: string, itemX: number, itemY: number, e: React.MouseEvent) => {
@@ -156,6 +173,7 @@ export default function PDFEditor({
     setActiveSignature(id);
     setActiveItem(null);
     setActiveRedaction(null);
+    setActiveStamp(null);
     setDraggingSigId(id);
     setDragSigPosition({ x: sigX, y: sigY });
     dragSigStartRef.current = {
@@ -164,7 +182,7 @@ export default function PDFEditor({
       startX: sigX,
       startY: sigY,
     };
-  }, [setActiveItem, setActiveRedaction, setActiveSignature]);
+  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
 
   // Handle Resize Action for signature stamps
   const handleSignatureResizeStart = useCallback((id: string, w: number, h: number, e: React.MouseEvent) => {
@@ -181,6 +199,40 @@ export default function PDFEditor({
       ratio: w / h,
     };
   }, [setActiveSignature]);
+
+  // Handle Drag Move Action for Stamps & Images
+  const handleStampDragStart = useCallback((id: string, stampX: number, stampY: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveStamp(id);
+    setActiveItem(null);
+    setActiveRedaction(null);
+    setActiveSignature(null);
+    setDraggingStampId(id);
+    setDragStampPosition({ x: stampX, y: stampY });
+    dragStampStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startX: stampX,
+      startY: stampY,
+    };
+  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
+
+  // Handle Resize Action for Stamps & Images
+  const handleStampResizeStart = useCallback((id: string, w: number, h: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveStamp(id);
+    setResizingStampId(id);
+    setStampDimensions({ w, h });
+    resizeStampStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startW: w,
+      startH: h,
+      ratio: w / h,
+    };
+  }, [setActiveStamp]);
 
   // Global Mouse listeners for dragging & resizing
   useEffect(() => {
@@ -224,6 +276,29 @@ export default function PDFEditor({
         const newH = Math.max(20, newW / start.ratio);
         setSigDimensions({ w: newW, h: newH });
       }
+
+      // 4. Stamp dragging
+      if (draggingStampId && dragStampStartRef.current) {
+        const start = dragStampStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const deltaY = e.clientY - start.mouseY;
+        const currentStamps = state.stamps[state.currentPage] || [];
+        const st = currentStamps.find(s => s.id === draggingStampId);
+        if (st) {
+          const newX = Math.max(0, Math.min(canvasWidth - st.width, start.startX + deltaX));
+          const newY = Math.max(0, Math.min(canvasHeight - st.height, start.startY + deltaY));
+          setDragStampPosition({ x: newX, y: newY });
+        }
+      }
+
+      // 5. Stamp resizing
+      if (resizingStampId && resizeStampStartRef.current) {
+        const start = resizeStampStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const newW = Math.max(30, Math.min(600, start.startW + deltaX));
+        const newH = Math.max(20, newW / start.ratio);
+        setStampDimensions({ w: newW, h: newH });
+      }
     };
 
     const handleMouseUp = () => {
@@ -258,6 +333,26 @@ export default function PDFEditor({
         setSigDimensions(null);
         resizeSigStartRef.current = null;
       }
+
+      // 4. Stamp drop
+      if (draggingStampId && dragStampStartRef.current && dragStampPosition) {
+        const start = dragStampStartRef.current;
+        const hasMoved = Math.abs(dragStampPosition.x - start.startX) > 0.5 || Math.abs(dragStampPosition.y - start.startY) > 0.5;
+        if (hasMoved) {
+          updateStamp(draggingStampId, { x: dragStampPosition.x, y: dragStampPosition.y });
+        }
+        setDraggingStampId(null);
+        setDragStampPosition(null);
+        dragStampStartRef.current = null;
+      }
+
+      // 5. Stamp resize end
+      if (resizingStampId && resizeStampStartRef.current && stampDimensions) {
+        updateStamp(resizingStampId, { width: stampDimensions.w, height: stampDimensions.h });
+        setResizingStampId(null);
+        setStampDimensions(null);
+        resizeStampStartRef.current = null;
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -267,7 +362,7 @@ export default function PDFEditor({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingId, dragPosition, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, state.signatures, state.currentPage, state.textItems, updatePosition, updateSignature]);
+  }, [draggingId, dragPosition, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, draggingStampId, dragStampPosition, resizingStampId, stampDimensions, state.signatures, state.stamps, state.currentPage, state.textItems, updatePosition, updateSignature, updateStamp]);
 
   // Handle Redaction Box Interactive Drawing on Canvas
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -275,6 +370,7 @@ export default function PDFEditor({
       setActiveItem(null);
       setActiveRedaction(null);
       setActiveSignature(null);
+      setActiveStamp(null);
       return;
     }
 
@@ -332,8 +428,9 @@ export default function PDFEditor({
     e.stopPropagation();
     setActiveRedaction(null);
     setActiveSignature(null);
+    setActiveStamp(null);
     setActiveItem(id);
-  }, [setActiveItem, setActiveRedaction, setActiveSignature]);
+  }, [setActiveItem, setActiveRedaction, setActiveSignature, setActiveStamp]);
 
   const handleInputChange = useCallback((id: string, val: string) => {
     setEditValues(prev => ({ ...prev, [id]: val }));
@@ -364,16 +461,53 @@ export default function PDFEditor({
     });
   };
 
+  // Handle stamp inserted from modal
+  const handleStampInserted = (
+    dataUrl: string,
+    width: number,
+    height: number,
+    rotation: number,
+    opacity: number,
+    label?: string
+  ) => {
+    const canvas = canvasRef.current;
+    const defaultX = canvas ? Math.max(50, canvas.width / 2 - width / 2) : 100;
+    const defaultY = canvas ? Math.max(50, canvas.height / 2 - height / 2) : 180;
+
+    addStamp({
+      type: label ? 'preset-stamp' : 'custom-image',
+      dataUrl,
+      label,
+      x: defaultX,
+      y: defaultY,
+      width,
+      height,
+      rotation,
+      opacity,
+    });
+  };
+
+  // Quick cycle stamp rotation (-15° -> 0° -> 15° -> 45° -> -30°)
+  const cycleStampRotation = (id: string, currentRotation: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ROTATION_STEPS = [-15, 0, 15, 45, -30];
+    const currentIndex = ROTATION_STEPS.indexOf(currentRotation);
+    const nextRotation = ROTATION_STEPS[(currentIndex + 1) % ROTATION_STEPS.length] ?? 0;
+    updateStamp(id, { rotation: nextRotation });
+  };
+
   const {
-    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId,
+    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId, activeStampId,
     activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
     isVerifying, isDirty, isLoading, isExporting, error
   } = state;
 
   const currentRedactions = state.redactions[currentPage] || [];
   const currentSignatures = state.signatures[currentPage] || [];
+  const currentStamps = state.stamps[currentPage] || [];
   const allRedactionCount = Object.values(state.redactions).reduce((acc, list) => acc + list.length, 0);
   const allSignatureCount = Object.values(state.signatures).reduce((acc, list) => acc + list.length, 0);
+  const allStampCount = Object.values(state.stamps).reduce((acc, list) => acc + list.length, 0);
 
   return (
     <section id="editor" style={{ padding: '0 0 4rem' }}>
@@ -440,6 +574,25 @@ export default function PDFEditor({
               title="Sign PDF: Draw, Type, or Upload Signature Stamp"
             >
               <PenTool size={13} color="#7c9aff" /> Sign PDF
+            </button>
+
+            <button
+              className="btn-secondary"
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: 'rgba(34,197,94,0.12)',
+                borderColor: 'rgba(34,197,94,0.3)',
+                color: '#4ade80',
+                fontWeight: 600,
+              }}
+              onClick={() => setShowStampModal(true)}
+              title="Stamp Documents Online Free: Insert APPROVED, PAID, Checkmarks, or Logos"
+            >
+              <Tag size={13} color="#4ade80" /> Stamp / Image
             </button>
 
             <button
@@ -623,6 +776,7 @@ export default function PDFEditor({
               setActiveItem(null);
               setActiveRedaction(null);
               setActiveSignature(null);
+              setActiveStamp(null);
             }
           }}
         >
@@ -688,6 +842,7 @@ export default function PDFEditor({
                         e.stopPropagation();
                         setActiveItem(null);
                         setActiveSignature(null);
+                        setActiveStamp(null);
                         setActiveRedaction(box.id);
                       }}
                       style={{
@@ -757,6 +912,7 @@ export default function PDFEditor({
                         e.stopPropagation();
                         setActiveItem(null);
                         setActiveRedaction(null);
+                        setActiveStamp(null);
                         setActiveSignature(sig.id);
                       }}
                       onMouseDown={e => handleSignatureDragStart(sig.id, sig.x, sig.y, e)}
@@ -837,6 +993,140 @@ export default function PDFEditor({
                             boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
                           }}
                           title="Drag to resize signature"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Official Stamps & Custom Images for Current Page */}
+                {currentStamps.map(stamp => {
+                  const isSelected = activeStampId === stamp.id;
+                  const isCurrentDragging = draggingStampId === stamp.id;
+                  const stX = isCurrentDragging && dragStampPosition ? dragStampPosition.x : stamp.x;
+                  const stY = isCurrentDragging && dragStampPosition ? dragStampPosition.y : stamp.y;
+
+                  const isCurrentResizing = resizingStampId === stamp.id;
+                  const stW = isCurrentResizing && stampDimensions ? stampDimensions.w : stamp.width;
+                  const stH = isCurrentResizing && stampDimensions ? stampDimensions.h : stamp.height;
+
+                  return (
+                    <div
+                      key={stamp.id}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setActiveItem(null);
+                        setActiveRedaction(null);
+                        setActiveSignature(null);
+                        setActiveStamp(stamp.id);
+                      }}
+                      onMouseDown={e => handleStampDragStart(stamp.id, stamp.x, stamp.y, e)}
+                      style={{
+                        position: 'absolute',
+                        left: stX,
+                        top: stY,
+                        width: stW,
+                        height: stH,
+                        transform: `rotate(${stamp.rotation}deg)`,
+                        opacity: stamp.opacity,
+                        border: isSelected ? '2px dashed #4ade80' : '1px solid transparent',
+                        borderRadius: 6,
+                        boxShadow: isSelected ? '0 0 12px rgba(74,222,128,0.4)' : 'none',
+                        zIndex: 22,
+                        cursor: 'grab',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        touchAction: 'none',
+                      }}
+                    >
+                      <img
+                        src={stamp.dataUrl}
+                        alt={stamp.label || 'Stamp'}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          pointerEvents: 'none',
+                          userSelect: 'none',
+                        }}
+                      />
+
+                      {/* Delete Stamp Button */}
+                      {isSelected && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            deleteStamp(stamp.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: -12,
+                            right: -12,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: '#ef4444',
+                            color: '#fff',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                            zIndex: 30,
+                          }}
+                          title="Remove stamp"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+
+                      {/* Quick Rotate Button */}
+                      {isSelected && (
+                        <button
+                          onClick={e => cycleStampRotation(stamp.id, stamp.rotation, e)}
+                          style={{
+                            position: 'absolute',
+                            top: -12,
+                            left: -12,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: '#4ade80',
+                            color: '#000',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                            zIndex: 30,
+                          }}
+                          title={`Rotate (Current: ${stamp.rotation}°)`}
+                        >
+                          <RotateCw size={12} />
+                        </button>
+                      )}
+
+                      {/* Resize Corner Handle */}
+                      {isSelected && (
+                        <div
+                          onMouseDown={e => handleStampResizeStart(stamp.id, stamp.width, stamp.height, e)}
+                          style={{
+                            position: 'absolute',
+                            bottom: -6,
+                            right: -6,
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            background: '#4ade80',
+                            border: '2px solid #fff',
+                            cursor: 'nwse-resize',
+                            zIndex: 30,
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                          }}
+                          title="Drag to resize stamp"
                         />
                       )}
                     </div>
@@ -1018,9 +1308,12 @@ export default function PDFEditor({
               {allSignatureCount > 0 && (
                 <span style={{ color: '#7c9aff', fontWeight: 600 }}>· {allSignatureCount} Signature(s)</span>
               )}
+              {allStampCount > 0 && (
+                <span style={{ color: '#4ade80', fontWeight: 600 }}>· {allStampCount} Stamp(s)</span>
+              )}
             </div>
             <div>
-              Ready to export · 100% In-Browser Sanitization & Signing
+              Ready to export · 100% In-Browser Sanitization, Signing & Stamping
             </div>
           </div>
         )}
@@ -1032,6 +1325,13 @@ export default function PDFEditor({
         isOpen={showSignatureModal}
         onClose={() => setShowSignatureModal(false)}
         onInsert={handleSignatureInserted}
+      />
+
+      {/* Stamp & Image Creator Modal */}
+      <StampModal
+        isOpen={showStampModal}
+        onClose={() => setShowStampModal(false)}
+        onInsert={handleStampInserted}
       />
 
       {/* Export & Sanitization Settings Modal */}
@@ -1128,7 +1428,7 @@ export default function PDFEditor({
                     <strong style={{ color: '#f0f0f0', fontSize: '0.92rem' }}>Standard Vector Overlay</strong>
                   </div>
                   <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(240,240,240,0.65)', lineHeight: 1.5 }}>
-                    Adds text, signature & shape overlays on top of the original vector streams. Keeps text selectable in external viewers. <em>(Not recommended for confidential PII redactions)</em>.
+                    Adds text, stamp & shape overlays on top of the original vector streams. Keeps text selectable in external viewers. <em>(Not recommended for confidential PII redactions)</em>.
                   </p>
                 </div>
               </label>

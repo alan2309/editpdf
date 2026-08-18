@@ -5,16 +5,20 @@ import { pathToFileURL } from 'url';
 // Import SEO data structure
 const SEO_DATA = {
   '/': {
-    title: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free (No Upload)',
-    description: 'Free, private online PDF text editor & digital signature tool. 100% in-browser processing, no uploads. Edit text, draw signatures, redact sensitive data, and download instantly.',
-    keywords: '100% private pdf editor, edit pdf online free no upload, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
+    title: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free (No Upload)',
+    description: 'Free, private online PDF text editor, digital signatures & stamp inserter. 100% in-browser processing, no uploads. Edit text, sign contracts, insert APPROVED / PAID stamps, checkmarks, logos, and download instantly.',
+    keywords: '100% private pdf editor, edit pdf online free no upload, stamp documents online free, insert image into pdf, add logo to pdf, stamp approved on pdf, add checkmark to pdf, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free',
-    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, format fonts, and sanitize sensitive data instantly.',
+    ogTitle: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free',
+    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, insert rubber stamps, and sanitize data instantly.',
     faqs: [
       {
-        q: 'Is this PDF text editor and digital signature tool really free?',
-        a: 'Yes, it is 100% free to use with no hidden fees, no watermark, no signup required, and no limits on basic usage.'
+        q: 'Is this PDF editor, digital signature, and document stamper really free?',
+        a: 'Yes, it is 100% free to use with no hidden fees, no watermark, no signup required, and no usage limits.'
+      },
+      {
+        q: 'Can I stamp documents with APPROVED, PAID, or custom company logos?',
+        a: 'Yes! You can insert official status stamps (APPROVED, PAID, CONFIDENTIAL, VOID, DRAFT, COMPLETED), checkmarks (✓), crossmarks (✗), or upload your company logo and receipts with auto-transparent background removal. Stamps can be scaled, rotated, and positioned anywhere.'
       },
       {
         q: 'Can I sign contracts, NDAs, and forms with a digital signature?',
@@ -23,10 +27,6 @@ const SEO_DATA = {
       {
         q: 'Does my PDF get uploaded to any server?',
         a: 'No. Unlike other tools, our PDF editor processes your file entirely in your web browser. Your file never leaves your device and is never uploaded to a cloud server, ensuring 100% privacy.'
-      },
-      {
-        q: 'How does the Redaction Verification feature protect sensitive data?',
-        a: 'When you redact confidential PII, our Permanent Sanitization engine completely purges underlying text streams. Our automated Redaction Verification scanner then audits the exported PDF binary to confirm zero trace of the redacted text remains.'
       }
     ]
   },

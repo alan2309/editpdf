@@ -67,6 +67,20 @@ export interface PDFSignatureItem {
   height: number;  // canvas-space height
 }
 
+export interface PDFStampItem {
+  id: string;
+  pageIndex: number;
+  type: 'preset-stamp' | 'custom-image';
+  dataUrl: string; // Base64 PNG image
+  label?: string;  // e.g. "APPROVED", "PAID"
+  x: number;       // canvas-space x
+  y: number;       // canvas-space y
+  width: number;   // canvas-space width
+  height: number;  // canvas-space height
+  rotation: number; // in degrees e.g. -15, 0, 15, 45
+  opacity: number;  // 0.1 to 1.0
+}
+
 export type EditorTool = 'select' | 'text' | 'blackout' | 'whiteout';
 export type ExportMode = 'sanitized' | 'vector';
 
@@ -95,9 +109,11 @@ export interface PDFEditorState {
   pageItems: Record<number, PDFTextItem[]>;
   redactions: Record<number, RedactionBox[]>;
   signatures: Record<number, PDFSignatureItem[]>;
+  stamps: Record<number, PDFStampItem[]>;
   activeItemId: string | null;
   activeRedactionId: string | null;
   activeSignatureId: string | null;
+  activeStampId: string | null;
   activeTool: EditorTool;
   exportMode: ExportMode;
   sanitizeMetadata: boolean;
@@ -109,5 +125,6 @@ export interface PDFEditorState {
   isExporting: boolean;
   error: string | null;
 }
+
 
 

@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
-  ExportMode, VerificationReport, VerificationCheck, PDFSignatureItem
+  ExportMode, VerificationReport, VerificationCheck, PDFSignatureItem, PDFStampItem
 } from '../types/pdf';
 import { DEFAULT_FORMAT } from '../types/pdf';
 
@@ -63,9 +63,11 @@ export function usePDFEditor() {
     pageItems: {},
     redactions: {},
     signatures: {},
+    stamps: {},
     activeItemId: null,
     activeRedactionId: null,
     activeSignatureId: null,
+    activeStampId: null,
     activeTool: 'select',
     exportMode: 'sanitized',
     sanitizeMetadata: true,
@@ -88,19 +90,22 @@ export function usePDFEditor() {
     pageItems: Record<number, PDFTextItem[]>;
     redactions: Record<number, RedactionBox[]>;
     signatures: Record<number, PDFSignatureItem[]>;
+    stamps: Record<number, PDFStampItem[]>;
   }[]>([]);
 
   const futureRef = useRef<{
     pageItems: Record<number, PDFTextItem[]>;
     redactions: Record<number, RedactionBox[]>;
     signatures: Record<number, PDFSignatureItem[]>;
+    stamps: Record<number, PDFStampItem[]>;
   }[]>([]);
 
   // Push helper for history tracking
   const pushToHistory = useCallback((
     currentPages: Record<number, PDFTextItem[]>,
     currentRedactions: Record<number, RedactionBox[]>,
-    currentSignatures: Record<number, PDFSignatureItem[]>
+    currentSignatures: Record<number, PDFSignatureItem[]>,
+    currentStamps: Record<number, PDFStampItem[]>
   ) => {
     const pagesClone: Record<number, PDFTextItem[]> = {};
     for (const [k, items] of Object.entries(currentPages)) {
@@ -114,7 +119,11 @@ export function usePDFEditor() {
     for (const [k, sigs] of Object.entries(currentSignatures)) {
       signaturesClone[Number(k)] = sigs.map(s => ({ ...s }));
     }
-    historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
+    const stampsClone: Record<number, PDFStampItem[]> = {};
+    for (const [k, stList] of Object.entries(currentStamps)) {
+      stampsClone[Number(k)] = stList.map(st => ({ ...st }));
+    }
+    historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone, stamps: stampsClone });
     futureRef.current = []; // Clear redo stack
   }, []);
 
@@ -134,7 +143,11 @@ export function usePDFEditor() {
       for (const [k, sigs] of Object.entries(s.signatures)) {
         signaturesClone[Number(k)] = sigs.map(sig => ({ ...sig }));
       }
-      futureRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
+      const stampsClone: Record<number, PDFStampItem[]> = {};
+      for (const [k, stList] of Object.entries(s.stamps)) {
+        stampsClone[Number(k)] = stList.map(st => ({ ...st }));
+      }
+      futureRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone, stamps: stampsClone });
 
       const currentPgItems = previous.pageItems[s.currentPage] || [];
       return {
@@ -142,6 +155,7 @@ export function usePDFEditor() {
         pageItems: previous.pageItems,
         redactions: previous.redactions,
         signatures: previous.signatures,
+        stamps: previous.stamps,
         textItems: currentPgItems,
         isDirty: true,
       };
@@ -164,7 +178,11 @@ export function usePDFEditor() {
       for (const [k, sigs] of Object.entries(s.signatures)) {
         signaturesClone[Number(k)] = sigs.map(sig => ({ ...sig }));
       }
-      historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
+      const stampsClone: Record<number, PDFStampItem[]> = {};
+      for (const [k, stList] of Object.entries(s.stamps)) {
+        stampsClone[Number(k)] = stList.map(st => ({ ...st }));
+      }
+      historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone, stamps: stampsClone });
 
       const currentPgItems = next.pageItems[s.currentPage] || [];
       return {
@@ -172,6 +190,7 @@ export function usePDFEditor() {
         pageItems: next.pageItems,
         redactions: next.redactions,
         signatures: next.signatures,
+        stamps: next.stamps,
         textItems: currentPgItems,
         isDirty: true,
       };
@@ -188,9 +207,11 @@ export function usePDFEditor() {
       pageItems: {},
       redactions: {},
       signatures: {},
+      stamps: {},
       activeItemId: null,
       activeRedactionId: null,
       activeSignatureId: null,
+      activeStampId: null,
       activeTool: 'select',
       verificationReport: null,
     }));
@@ -332,7 +353,7 @@ export function usePDFEditor() {
   // ── Update text ────────────────────────────────────────────────────────────
   const updateText = useCallback((id: string, newText: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, editedText: newText } : item
       );
@@ -348,7 +369,7 @@ export function usePDFEditor() {
   // ── Update format ──────────────────────────────────────────────────────────
   const updateFormat = useCallback((id: string, partial: Partial<TextFormat>) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, format: { ...item.format, ...partial } } : item
       );
@@ -364,7 +385,7 @@ export function usePDFEditor() {
   // ── Update position ────────────────────────────────────────────────────────
   const updatePosition = useCallback((id: string, x: number, y: number) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, x, y } : item
       );
@@ -380,7 +401,7 @@ export function usePDFEditor() {
   // ── Delete item (hides from view + blanks in export) ─────────────────
   const deleteItem = useCallback((id: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, isDeleted: true } : item
       );
@@ -397,7 +418,7 @@ export function usePDFEditor() {
   // ── Add new text field ─────────────────────────────────────────────────────
   const addTextField = useCallback(() => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const newId = `added-${Date.now()}`;
       const x = 100;
       const y = 120;
@@ -435,7 +456,7 @@ export function usePDFEditor() {
   // ── Redaction Box Handlers ──────────────────────────────────────────────────
   const addRedactionBox = useCallback((box: Omit<RedactionBox, 'id' | 'pageIndex'> & { pageIndex?: number }) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = box.pageIndex ?? s.currentPage;
       const newBox: RedactionBox = {
         id: `redact-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -459,7 +480,7 @@ export function usePDFEditor() {
 
   const updateRedactionBox = useCallback((id: string, partial: Partial<RedactionBox>) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = s.currentPage;
       const existing = s.redactions[pageNum] || [];
       const updated = existing.map(b => b.id === id ? { ...b, ...partial } : b);
@@ -473,7 +494,7 @@ export function usePDFEditor() {
 
   const deleteRedactionBox = useCallback((id: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = s.currentPage;
       const existing = s.redactions[pageNum] || [];
       const updated = existing.filter(b => b.id !== id);
@@ -489,7 +510,7 @@ export function usePDFEditor() {
   // ── Digital Signature Handlers ──────────────────────────────────────────────
   const addSignature = useCallback((sig: Omit<PDFSignatureItem, 'id' | 'pageIndex'> & { pageIndex?: number }) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = sig.pageIndex ?? s.currentPage;
       const newSig: PDFSignatureItem = {
         id: `sig-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -513,7 +534,7 @@ export function usePDFEditor() {
 
   const updateSignature = useCallback((id: string, partial: Partial<PDFSignatureItem>) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = s.currentPage;
       const existing = s.signatures[pageNum] || [];
       const updated = existing.map(sig => sig.id === id ? { ...sig, ...partial } : sig);
@@ -527,7 +548,7 @@ export function usePDFEditor() {
 
   const deleteSignature = useCallback((id: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const pageNum = s.currentPage;
       const existing = s.signatures[pageNum] || [];
       const updated = existing.filter(sig => sig.id !== id);
@@ -540,9 +561,68 @@ export function usePDFEditor() {
     });
   }, [pushToHistory]);
 
+  // ── Image & Stamp Inserter Handlers ─────────────────────────────────────────
+  const addStamp = useCallback((stamp: Omit<PDFStampItem, 'id' | 'pageIndex'> & { pageIndex?: number }) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+      const pageNum = stamp.pageIndex ?? s.currentPage;
+      const newStamp: PDFStampItem = {
+        id: `stamp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        pageIndex: pageNum,
+        type: stamp.type,
+        dataUrl: stamp.dataUrl,
+        label: stamp.label,
+        x: stamp.x,
+        y: stamp.y,
+        width: stamp.width,
+        height: stamp.height,
+        rotation: stamp.rotation ?? 0,
+        opacity: stamp.opacity ?? 0.95,
+      };
+      const existing = s.stamps[pageNum] || [];
+      const updated = [...existing, newStamp];
+      return {
+        ...s,
+        isDirty: true,
+        stamps: { ...s.stamps, [pageNum]: updated },
+        activeStampId: newStamp.id,
+      };
+    });
+  }, [pushToHistory]);
+
+  const updateStamp = useCallback((id: string, partial: Partial<PDFStampItem>) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+      const pageNum = s.currentPage;
+      const existing = s.stamps[pageNum] || [];
+      const updated = existing.map(st => st.id === id ? { ...st, ...partial } : st);
+      return {
+        ...s,
+        isDirty: true,
+        stamps: { ...s.stamps, [pageNum]: updated },
+      };
+    });
+  }, [pushToHistory]);
+
+  const deleteStamp = useCallback((id: string) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
+      const pageNum = s.currentPage;
+      const existing = s.stamps[pageNum] || [];
+      const updated = existing.filter(st => st.id !== id);
+      return {
+        ...s,
+        isDirty: true,
+        stamps: { ...s.stamps, [pageNum]: updated },
+        activeStampId: s.activeStampId === id ? null : s.activeStampId,
+      };
+    });
+  }, [pushToHistory]);
+
   const setActiveItem = useCallback((id: string | null) => setState(s => ({ ...s, activeItemId: id })), []);
   const setActiveRedaction = useCallback((id: string | null) => setState(s => ({ ...s, activeRedactionId: id })), []);
   const setActiveSignature = useCallback((id: string | null) => setState(s => ({ ...s, activeSignatureId: id })), []);
+  const setActiveStamp = useCallback((id: string | null) => setState(s => ({ ...s, activeStampId: id })), []);
   const setActiveTool = useCallback((tool: EditorTool) => setState(s => ({ ...s, activeTool: tool })), []);
   const setExportMode = useCallback((mode: ExportMode) => setState(s => ({ ...s, exportMode: mode })), []);
   const setSanitizeMetadata = useCallback((sanitize: boolean) => setState(s => ({ ...s, sanitizeMetadata: sanitize })), []);
@@ -640,6 +720,32 @@ export function usePDFEditor() {
             }
           });
           offCtx.drawImage(img, sig.x * ratio, sig.y * ratio, sig.width * ratio, sig.height * ratio);
+        }
+
+        // 4. Draw Official Stamps & Images (with rotation and opacity)
+        const pageStamps = state.stamps[p] || [];
+        for (const stamp of pageStamps) {
+          const img = new Image();
+          img.src = stamp.dataUrl;
+          await new Promise(resolve => {
+            if (img.complete) resolve(null);
+            else {
+              img.onload = () => resolve(null);
+              img.onerror = () => resolve(null);
+            }
+          });
+
+          const cx = (stamp.x + stamp.width / 2) * ratio;
+          const cy = (stamp.y + stamp.height / 2) * ratio;
+          const sw = stamp.width * ratio;
+          const sh = stamp.height * ratio;
+
+          offCtx.save();
+          offCtx.translate(cx, cy);
+          offCtx.rotate((stamp.rotation * Math.PI) / 180);
+          offCtx.globalAlpha = stamp.opacity;
+          offCtx.drawImage(img, -sw / 2, -sh / 2, sw, sh);
+          offCtx.restore();
         }
 
         const dataUrl = offCanvas.toDataURL('image/jpeg', 0.95);
@@ -782,6 +888,27 @@ export function usePDFEditor() {
             });
           } catch (err) {
             console.error('Failed to embed signature PNG in vector mode:', err);
+          }
+        }
+
+        // 4. Draw Official Stamps & Images in Vector Mode
+        const pageStamps = state.stamps[p] || [];
+        for (const stamp of pageStamps) {
+          try {
+            const pngBytes = dataUrlToUint8Array(stamp.dataUrl);
+            const embeddedPng = await pdfLibDoc.embedPng(pngBytes);
+            const pdfX = stamp.x * pdfScale;
+            const pdfY = pageHeight - ((stamp.y + stamp.height) * pdfScale);
+            page.drawImage(embeddedPng, {
+              x: pdfX,
+              y: pdfY,
+              width: stamp.width * pdfScale,
+              height: stamp.height * pdfScale,
+              rotate: degrees(stamp.rotation),
+              opacity: stamp.opacity,
+            });
+          } catch (err) {
+            console.error('Failed to embed stamp PNG in vector mode:', err);
           }
         }
       }
@@ -965,9 +1092,11 @@ export function usePDFEditor() {
       pageItems: {},
       redactions: {},
       signatures: {},
+      stamps: {},
       activeItemId: null,
       activeRedactionId: null,
       activeSignatureId: null,
+      activeStampId: null,
       activeTool: 'select',
       exportMode: 'sanitized',
       sanitizeMetadata: true,
@@ -997,6 +1126,10 @@ export function usePDFEditor() {
     updateSignature,
     deleteSignature,
     setActiveSignature,
+    addStamp,
+    updateStamp,
+    deleteStamp,
+    setActiveStamp,
     setActiveRedaction,
     setActiveTool,
     setExportMode,

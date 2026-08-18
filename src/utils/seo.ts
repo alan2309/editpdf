@@ -15,20 +15,24 @@ export interface PageSEO {
 
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
-    title: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free (No Upload)',
-    description: 'Free, private online PDF text editor & digital signature tool. 100% in-browser processing, no uploads. Edit text, draw signatures, redact sensitive data, and download instantly.',
-    keywords: '100% private pdf editor, edit pdf online free no upload, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
+    title: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free (No Upload)',
+    description: 'Free, private online PDF text editor, digital signatures & stamp inserter. 100% in-browser processing, no uploads. Edit text, sign contracts, insert APPROVED / PAID stamps, checkmarks, logos, and download instantly.',
+    keywords: '100% private pdf editor, edit pdf online free no upload, stamp documents online free, insert image into pdf, add logo to pdf, stamp approved on pdf, add checkmark to pdf, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free',
-    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, format fonts, and sanitize sensitive data instantly.',
-    h1: '100% Private PDF Text Editor & Signer',
-    h1Highlight: 'Edit & Sign in Browser',
+    ogTitle: '100% Private PDF Editor | Edit, Sign, Stamp & Redact PDF Online Free',
+    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, insert rubber stamps & logos, and sanitize sensitive data instantly.',
+    h1: '100% Private PDF Editor, Signer & Stamper',
+    h1Highlight: 'Edit, Sign & Stamp in Browser',
     h1Subtitle: '(Zero Server Upload · 100% Confidential)',
-    badge: '100% Private · Digital Signatures · True Redaction · Zero Server Upload',
+    badge: '100% Private · Digital Signatures · Official Stamps · True Redaction · Zero Server Upload',
     faqs: [
       {
-        q: 'Is this PDF editor and digital signature tool really free?',
+        q: 'Is this PDF editor, digital signature, and document stamper really free?',
         a: 'Yes, it is 100% free to use with no hidden fees, no watermark, no signup required, and no usage limits.'
+      },
+      {
+        q: 'Can I stamp documents with APPROVED, PAID, or custom company logos?',
+        a: 'Yes! You can insert official status stamps (APPROVED, PAID, CONFIDENTIAL, VOID, DRAFT, COMPLETED), checkmarks (✓), crossmarks (✗), or upload your company logo and receipts with auto-transparent background removal. Stamps can be scaled, rotated, and positioned anywhere.'
       },
       {
         q: 'Can I sign contracts, NDAs, and forms with a digital signature?',
@@ -43,8 +47,8 @@ export const SEO_DATA: Record<string, PageSEO> = {
         a: 'When you redact confidential PII, our Permanent Sanitization engine completely purges underlying text streams. Our automated Redaction Verification scanner then audits the exported PDF binary to confirm zero trace of the redacted text remains.'
       },
       {
-        q: 'Will my edits persist across multiple pages in long documents?',
-        a: 'Yes. Edits, font formatting, additions, redaction boxes, and digital signatures are saved in an indexed page dictionary and persist seamlessly across all pages during export.'
+        q: 'Will my edits, signatures, and stamps persist across multiple pages?',
+        a: 'Yes. Edits, font formatting, additions, redaction boxes, digital signatures, and stamps are saved in an indexed page dictionary and persist seamlessly across all pages during export.'
       },
       {
         q: 'Is this tool compliant with GDPR, HIPAA, and CCPA regulations?',
