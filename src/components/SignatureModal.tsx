@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  X, PenTool, Type, Upload, Bookmark, RotateCcw, Trash2, Check, Sparkles
+  X, PenTool, Type, Upload, Bookmark, RotateCcw, Trash2, Check, AlertTriangle
 } from 'lucide-react';
+import { validateImageFile } from '../utils/imageValidation';
 
 interface SignatureModalProps {
   isOpen: boolean;
@@ -49,6 +50,8 @@ export default function SignatureModal({ isOpen, onClose, onInsert }: SignatureM
 
   // Upload Tab State
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedDimensions, setUploadedDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -260,53 +263,61 @@ export default function SignatureModal({ isOpen, onClose, onInsert }: SignatureM
   }, [typedName, selectedFontIndex, selectedColor]);
 
   // ── UPLOAD TAB LOGIC (Auto-removes white paper background) ──────────────────
-  const handleFileUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+  const handleFileUpload = async (file: File) => {
+    setUploadError(null);
+    const validation = await validateImageFile(file);
+    if (!validation.valid || !validation.dataUrl) {
+      setUploadError(validation.error || 'Failed to validate uploaded image.');
+      return;
+    }
+
     setIsProcessingUpload(true);
+    const src = validation.dataUrl;
+    const img = new Image();
+    img.onload = () => {
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const ctx = offCanvas.getContext('2d')!;
 
-    const reader = new FileReader();
-    reader.onload = e => {
-      const src = e.target?.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width = img.width;
-        offCanvas.height = img.height;
-        const ctx = offCanvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+      const data = imgData.data;
 
-        ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
-        const data = imgData.data;
+      // Auto-remove paper background: if pixel is close to white, make alpha transparent
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
-        // Auto-remove paper background: if pixel is close to white, make alpha transparent
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-
-          if (luminance > 215) {
-            data[i + 3] = 0; // 100% transparent
-          } else {
-            // Enhance contrast for signature ink
-            const factor = Math.max(0, 1 - luminance / 215);
-            data[i + 3] = Math.min(255, Math.floor(factor * 255 * 1.5));
-          }
+        if (luminance > 215) {
+          data[i + 3] = 0; // 100% transparent
+        } else {
+          // Enhance contrast for signature ink
+          const factor = Math.max(0, 1 - luminance / 215);
+          data[i + 3] = Math.min(255, Math.floor(factor * 255 * 1.5));
         }
+      }
 
-        ctx.putImageData(imgData, 0, 0);
-        const transparentPng = cropCanvasToContent(offCanvas);
-        setUploadedImage(transparentPng);
-        setIsProcessingUpload(false);
-      };
-      img.src = src;
+      ctx.putImageData(imgData, 0, 0);
+      const transparentPng = cropCanvasToContent(offCanvas);
+      setUploadedImage(transparentPng);
+      setUploadedDimensions({ width: img.width, height: img.height });
+      setIsProcessingUpload(false);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      setIsProcessingUpload(false);
+      setUploadError('Failed to decode image data.');
+    };
+    img.src = src;
   };
 
   // ── HANDLE FINAL INSERT ────────────────────────────────────────────────────
   const handleInsertSignature = () => {
     let finalDataUrl = '';
+    let insertWidth = 160;
+    let insertHeight = 65;
 
     if (activeTab === 'draw') {
       if (!drawCanvasRef.current || !hasDrawn) return;
@@ -316,11 +327,15 @@ export default function SignatureModal({ isOpen, onClose, onInsert }: SignatureM
     } else if (activeTab === 'upload') {
       if (!uploadedImage) return;
       finalDataUrl = uploadedImage;
+      if (uploadedDimensions && uploadedDimensions.height > 0) {
+        const ratio = uploadedDimensions.width / uploadedDimensions.height;
+        insertHeight = Math.max(30, Math.min(100, Math.round(160 / ratio)));
+      }
     }
 
     if (finalDataUrl) {
       saveSignatureToStorage(finalDataUrl);
-      onInsert(finalDataUrl, 160, 65);
+      onInsert(finalDataUrl, insertWidth, insertHeight);
       onClose();
     }
   };
@@ -666,6 +681,24 @@ export default function SignatureModal({ isOpen, onClose, onInsert }: SignatureM
                   if (file) handleFileUpload(file);
                 }}
               />
+
+              {uploadError && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.15)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem 1rem',
+                  marginBottom: '1rem',
+                  color: '#fca5a5',
+                  fontSize: '0.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}>
+                  <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <span>{uploadError}</span>
+                </div>
+              )}
 
               {!uploadedImage ? (
                 <div

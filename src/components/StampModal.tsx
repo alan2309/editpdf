@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import {
-  X, Check, Upload, Tag, CheckSquare, Sparkles
+  X, Check, Upload, Tag, AlertTriangle, RotateCcw, RotateCw, CheckSquare, Sparkles
 } from 'lucide-react';
+import { validateImageFile } from '../utils/imageValidation';
 
 interface StampModalProps {
   isOpen: boolean;
@@ -51,6 +52,8 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
 
   // Upload State
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedDimensions, setUploadedDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const [autoRemoveBg, setAutoRemoveBg] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,48 +181,56 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
   };
 
   // ── Auto Background Removal for Scans & Logos ──────────────────────────────
-  const processImageUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    setIsProcessingUpload(true);
+  const processImageUpload = async (file: File) => {
+    setUploadError(null);
+    const validation = await validateImageFile(file);
+    if (!validation.valid || !validation.dataUrl) {
+      setUploadError(validation.error || 'Failed to validate uploaded image.');
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = e => {
-      const src = e.target?.result as string;
-      if (!autoRemoveBg) {
-        setUploadedImage(src);
-        setIsProcessingUpload(false);
-        return;
+    setIsProcessingUpload(true);
+    const src = validation.dataUrl;
+
+    if (!autoRemoveBg) {
+      setUploadedImage(src);
+      setUploadedDimensions({ width: validation.width || 140, height: validation.height || 100 });
+      setIsProcessingUpload(false);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const ctx = offCanvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+      const data = imgData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        if (luminance > 220) {
+          data[i + 3] = 0; // Transparent
+        }
       }
 
-      const img = new Image();
-      img.onload = () => {
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width = img.width;
-        offCanvas.height = img.height;
-        const ctx = offCanvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0);
-
-        const imgData = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
-        const data = imgData.data;
-
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-
-          if (luminance > 220) {
-            data[i + 3] = 0; // Transparent
-          }
-        }
-
-        ctx.putImageData(imgData, 0, 0);
-        setUploadedImage(offCanvas.toDataURL('image/png'));
-        setIsProcessingUpload(false);
-      };
-      img.src = src;
+      ctx.putImageData(imgData, 0, 0);
+      setUploadedImage(offCanvas.toDataURL('image/png'));
+      setUploadedDimensions({ width: img.width, height: img.height });
+      setIsProcessingUpload(false);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      setIsProcessingUpload(false);
+      setUploadError('Failed to decode image data.');
+    };
+    img.src = src;
   };
 
   const handleSelectPresetStamp = (stamp: PresetStamp) => {
@@ -243,7 +254,13 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
 
   const handleInsertUploadedImage = () => {
     if (!uploadedImage) return;
-    onInsert(uploadedImage, 140, 100, 0, 1.0, 'Uploaded Image');
+    let insertW = 140;
+    let insertH = 100;
+    if (uploadedDimensions && uploadedDimensions.height > 0) {
+      const ratio = uploadedDimensions.width / uploadedDimensions.height;
+      insertH = Math.max(30, Math.min(180, Math.round(140 / ratio)));
+    }
+    onInsert(uploadedImage, insertW, insertH, 0, 1.0, 'Uploaded Image');
     onClose();
   };
 
@@ -526,16 +543,68 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
                   ))}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Angle: {customRotation}°</span>
+                {/* Angle Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>Angle:</span>
                   <input
                     type="range"
-                    min="-45"
-                    max="45"
+                    min="-180"
+                    max="180"
                     value={customRotation}
                     onChange={e => setCustomRotation(Number(e.target.value))}
-                    style={{ width: 80 }}
+                    style={{ width: 90 }}
                   />
+                  <input
+                    type="number"
+                    min="-180"
+                    max="180"
+                    value={customRotation}
+                    onChange={e => setCustomRotation(Math.max(-180, Math.min(180, Number(e.target.value) || 0)))}
+                    style={{
+                      width: 52,
+                      padding: '0.2rem 0.35rem',
+                      borderRadius: 4,
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#f0f0f0',
+                      fontSize: '0.75rem',
+                      textAlign: 'center',
+                    }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(240,240,240,0.6)' }}>°</span>
+                  <div style={{ display: 'flex', gap: '0.2rem' }}>
+                    <button
+                      className="btn-icon"
+                      style={{ width: 24, height: 24, fontSize: '0.65rem' }}
+                      onClick={() => setCustomRotation(r => Math.max(-180, r - 90))}
+                      title="Rotate -90°"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                    <button
+                      className="btn-icon"
+                      style={{ width: 24, height: 24, fontSize: '0.65rem' }}
+                      onClick={() => setCustomRotation(r => Math.min(180, r + 90))}
+                      title="Rotate +90°"
+                    >
+                      <RotateCw size={11} />
+                    </button>
+                    <button
+                      style={{
+                        padding: '0.1rem 0.35rem',
+                        fontSize: '0.65rem',
+                        borderRadius: 4,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'rgba(240,240,240,0.7)',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setCustomRotation(0)}
+                      title="Reset angle to 0°"
+                    >
+                      0°
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -586,13 +655,31 @@ export default function StampModal({ isOpen, onClose, onInsert }: StampModalProp
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml"
+                accept="image/png, image/jpeg, image/jpg, image/webp"
                 style={{ display: 'none' }}
                 onChange={e => {
                   const file = e.target.files?.[0];
                   if (file) processImageUpload(file);
                 }}
               />
+
+              {uploadError && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.15)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem 1rem',
+                  marginBottom: '1rem',
+                  color: '#fca5a5',
+                  fontSize: '0.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}>
+                  <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <span>{uploadError}</span>
+                </div>
+              )}
 
               {!uploadedImage ? (
                 <div

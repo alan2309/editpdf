@@ -3,9 +3,11 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
-  ExportMode, VerificationReport, VerificationCheck, PDFSignatureItem, PDFStampItem
+  ExportMode, VerificationReport, VerificationCheck, PDFSignatureItem, PDFStampItem,
+  SearchMatch
 } from '../types/pdf';
 import { DEFAULT_FORMAT } from '../types/pdf';
+import { calculateSubstringBox } from '../utils/textMetrics';
 
 // Worker served locally from /public to avoid CDN version mismatch
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -84,6 +86,9 @@ export function usePDFEditor() {
   const rawBytesRef = useRef<ArrayBuffer | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const currentRenderIdRef = useRef<number>(0);
+
+  // Active text editing transaction tracking (to prevent keystrokes from flooding undo history)
+  const editingPreValueRef = useRef<{ id: string; originalValue: string } | null>(null);
 
   // Undo / Redo Stacks
   const historyRef = useRef<{
@@ -199,6 +204,20 @@ export function usePDFEditor() {
 
   // ── Load PDF ──────────────────────────────────────────────────────────────
   const loadPDF = useCallback(async (file: File) => {
+    // Clean up previous resources
+    if (renderTaskRef.current) {
+      try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
+      renderTaskRef.current = null;
+    }
+    if (pdfDocRef.current) {
+      try {
+        pdfDocRef.current.cleanup();
+        (pdfDocRef.current as { destroy?: () => void }).destroy?.();
+      } catch { /* ignore */ }
+      pdfDocRef.current = null;
+    }
+    rawBytesRef.current = null;
+
     setState(s => ({
       ...s,
       isLoading: true,
@@ -217,12 +236,33 @@ export function usePDFEditor() {
     }));
     historyRef.current = [];
     futureRef.current = [];
+    editingPreValueRef.current = null;
 
     try {
+      if (!file || file.size === 0) {
+        throw new Error('The selected file is empty. Please select a valid PDF.');
+      }
+
+      if (file.size > 100 * 1024 * 1024) {
+        throw new Error('File size exceeds the 100 MB limit. Please select a smaller PDF.');
+      }
+
       const buffer = await file.arrayBuffer();
+      // Check for basic PDF header '%PDF-'
+      const headerBytes = new Uint8Array(buffer.slice(0, 5));
+      const headerStr = String.fromCharCode(...headerBytes);
+      if (headerStr !== '%PDF-') {
+        throw new Error('Invalid file format. The uploaded file is not a valid PDF document.');
+      }
+
       rawBytesRef.current = buffer.slice(0);
 
-      const loadingTask = pdfjsLib.getDocument({ data: buffer.slice(0) });
+      const loadingTask = pdfjsLib.getDocument({
+        data: buffer.slice(0),
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/cmaps/',
+        cMapPacked: true,
+      });
+
       const pdfDoc = await loadingTask.promise;
       pdfDocRef.current = pdfDoc;
 
@@ -234,9 +274,17 @@ export function usePDFEditor() {
         isDirty: false,
         isLoading: false,
       }));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      setState(s => ({ ...s, isLoading: false, error: 'Failed to load PDF. Make sure it is a valid PDF file.' }));
+      let errMsg = 'Failed to load PDF. Make sure it is a valid PDF file.';
+      if (err instanceof Error) {
+        if (err.name === 'PasswordException') {
+          errMsg = 'This PDF is password-protected. Please remove the password to edit.';
+        } else if (err.message) {
+          errMsg = err.message;
+        }
+      }
+      setState(s => ({ ...s, isLoading: false, error: errMsg }));
     }
   }, []);
 
@@ -327,7 +375,7 @@ export function usePDFEditor() {
     }
     renderTaskRef.current = null;
 
-    let items: PDFTextItem[] = [];
+    const items: PDFTextItem[] = [];
 
     // Extract fresh text items with coordinates
     const textContent = await page.getTextContent();
@@ -403,9 +451,78 @@ export function usePDFEditor() {
     return items;
   }, []);
 
-  // ── Update text ────────────────────────────────────────────────────────────
+  // ── Transactional Text Editing Handlers ─────────────────────────────────────
+  const beginTextEdit = useCallback((id: string) => {
+    const currentItem = state.textItems.find(i => i.id === id);
+    if (currentItem) {
+      editingPreValueRef.current = { id, originalValue: currentItem.editedText };
+    }
+  }, [state.textItems]);
+
+  const updateTextWithoutHistory = useCallback((id: string, newText: string) => {
+    setState(s => {
+      const updated = s.textItems.map(item =>
+        item.id === id ? { ...item, editedText: newText } : item
+      );
+      return {
+        ...s,
+        isDirty: true,
+        textItems: updated,
+        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+      };
+    });
+  }, []);
+
+  const commitTextEdit = useCallback((id: string) => {
+    const pre = editingPreValueRef.current;
+    editingPreValueRef.current = null;
+
+    setState(s => {
+      const currentItem = s.textItems.find(i => i.id === id);
+      if (!currentItem) return s;
+
+      // Only push to history if value actually changed from pre-edit state
+      if (!pre || pre.id !== id || pre.originalValue !== currentItem.editedText) {
+        // Construct previous state snapshot with the pre-edit value
+        const prevPages: Record<number, PDFTextItem[]> = {};
+        for (const [k, items] of Object.entries(s.pageItems)) {
+          prevPages[Number(k)] = items.map(item =>
+            item.id === id && pre ? { ...item, editedText: pre.originalValue, format: { ...item.format } } : { ...item, format: { ...item.format } }
+          );
+        }
+        pushToHistory(prevPages, s.redactions, s.signatures, s.stamps);
+      }
+
+      return {
+        ...s,
+        isDirty: true,
+      };
+    });
+  }, [pushToHistory]);
+
+  const cancelTextEdit = useCallback((id: string) => {
+    const pre = editingPreValueRef.current;
+    editingPreValueRef.current = null;
+    if (!pre || pre.id !== id) return;
+
+    setState(s => {
+      const updated = s.textItems.map(item =>
+        item.id === id ? { ...item, editedText: pre.originalValue } : item
+      );
+      return {
+        ...s,
+        textItems: updated,
+        pageItems: { ...s.pageItems, [s.currentPage]: updated },
+      };
+    });
+  }, []);
+
+  // ── Standard Update text (Atomic / Programmatic) ───────────────────────────
   const updateText = useCallback((id: string, newText: string) => {
     setState(s => {
+      const target = s.textItems.find(i => i.id === id);
+      if (target && target.editedText === newText) return s;
+
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, editedText: newText } : item
@@ -438,6 +555,9 @@ export function usePDFEditor() {
   // ── Update position ────────────────────────────────────────────────────────
   const updatePosition = useCallback((id: string, x: number, y: number) => {
     setState(s => {
+      const target = s.textItems.find(i => i.id === id);
+      if (target && Math.abs(target.x - x) < 0.1 && Math.abs(target.y - y) < 0.1) return s;
+
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, x, y } : item
@@ -673,31 +793,44 @@ export function usePDFEditor() {
     });
   }, [pushToHistory]);
 
-  // ── Find & Replace Multi-Page Engine ────────────────────────────────────────
+  // ── Find & Replace Multi-Page Engine (Exact Substring Character Offsets) ─────
   const searchDocumentMatches = useCallback(async (
     query: string,
     matchCase: boolean,
     wholeWord: boolean
-  ): Promise<{ itemId: string; pageNumber: number; originalText: string; matchedText: string }[]> => {
-    if (!query.trim() || state.totalPages === 0) return [];
+  ): Promise<SearchMatch[]> => {
+    if (!query || state.totalPages === 0) return [];
 
-    const results: { itemId: string; pageNumber: number; originalText: string; matchedText: string }[] = [];
+    const results: SearchMatch[] = [];
     const flags = matchCase ? 'g' : 'gi';
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+    const regexPattern = wholeWord ? `\\b${escaped}\\b` : escaped;
 
     for (let p = 1; p <= state.totalPages; p++) {
       const items = state.pageItems[p] || await extractPageItems(p);
       for (const it of items) {
         if (it.isDeleted) continue;
-        regex.lastIndex = 0;
-        if (regex.test(it.editedText)) {
+        const text = it.editedText;
+        const regex = new RegExp(regexPattern, flags);
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(text)) !== null) {
           results.push({
             itemId: it.id,
             pageNumber: p,
             originalText: it.originalText,
-            matchedText: it.editedText,
+            matchedText: match[0],
+            matchStart: match.index,
+            matchEnd: match.index + match[0].length,
+            query,
+            matchCase,
+            wholeWord,
           });
+
+          // Prevent infinite loop on empty match regex
+          if (regex.lastIndex === match.index) {
+            regex.lastIndex++;
+          }
         }
       }
     }
@@ -705,28 +838,95 @@ export function usePDFEditor() {
     return results;
   }, [state.totalPages, state.pageItems, extractPageItems]);
 
+  // ── Replace Single Match (Exact Substring Slicing) ───────────────────────────
   const replaceSingleMatch = useCallback((
-    itemId: string,
-    pageNumber: number,
-    replaceWith: string,
-    query: string,
-    matchCase: boolean,
-    wholeWord: boolean
+    itemIdOrMatch: string | SearchMatch,
+    pageNumberOrReplacement: number | string,
+    replaceWithArg?: string,
+    queryArg?: string,
+    matchCaseArg?: boolean,
+    wholeWordArg?: boolean,
+    matchStartArg?: number,
+    matchEndArg?: number
   ) => {
+    let itemId: string;
+    let pageNumber: number;
+    let replaceWith: string;
+    let query: string;
+    let matchCase: boolean;
+    let wholeWord: boolean;
+    let matchStart: number | undefined;
+    let matchEnd: number | undefined;
+
+    if (typeof itemIdOrMatch === 'string') {
+      itemId = itemIdOrMatch;
+      pageNumber = Number(pageNumberOrReplacement);
+      replaceWith = replaceWithArg ?? '';
+      query = queryArg ?? '';
+      matchCase = matchCaseArg ?? false;
+      wholeWord = wholeWordArg ?? false;
+      matchStart = matchStartArg;
+      matchEnd = matchEndArg;
+    } else {
+      const matchObj = itemIdOrMatch;
+      itemId = matchObj.itemId;
+      pageNumber = matchObj.pageNumber;
+      replaceWith = String(pageNumberOrReplacement);
+      query = matchObj.query || matchObj.matchedText;
+      matchCase = matchObj.matchCase;
+      wholeWord = matchObj.wholeWord;
+      matchStart = matchObj.matchStart;
+      matchEnd = matchObj.matchEnd;
+    }
+
     setState(s => {
       pushToHistory(s.pageItems, s.redactions, s.signatures, s.stamps);
       const targetPageItems = s.pageItems[pageNumber] || [];
-      const flags = matchCase ? 'g' : 'gi';
-      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
 
       const updated = targetPageItems.map(item => {
-        if (item.id === itemId) {
+        if (item.id !== itemId) return item;
+
+        const currentText = item.editedText;
+
+        // 1. Direct character slice if offsets are provided and still match
+        if (
+          matchStart !== undefined &&
+          matchEnd !== undefined &&
+          matchStart >= 0 &&
+          matchEnd <= currentText.length
+        ) {
+          const sliceCandidate = currentText.slice(matchStart, matchEnd);
+          const candidateMatches = matchCase
+            ? sliceCandidate === query
+            : sliceCandidate.toLowerCase() === query.toLowerCase();
+
+          if (candidateMatches) {
+            const before = currentText.slice(0, matchStart);
+            const after = currentText.slice(matchEnd);
+            return {
+              ...item,
+              editedText: before + replaceWith + after,
+            };
+          }
+        }
+
+        // 2. Fallback: Search first exact regex match in current text and replace only that occurrence
+        const flags = matchCase ? '' : 'i';
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+        const matchResult = regex.exec(currentText);
+
+        if (matchResult) {
+          const idx = matchResult.index;
+          const len = matchResult[0].length;
+          const before = currentText.slice(0, idx);
+          const after = currentText.slice(idx + len);
           return {
             ...item,
-            editedText: item.editedText.replace(regex, replaceWith),
+            editedText: before + replaceWith + after,
           };
         }
+
         return item;
       });
 
@@ -742,17 +942,18 @@ export function usePDFEditor() {
     });
   }, [pushToHistory]);
 
+  // ── Replace All Matches (Exact Substring Across Entire Document) ─────────────
   const replaceAllMatches = useCallback(async (
     query: string,
     replaceWith: string,
     matchCase: boolean,
     wholeWord: boolean
   ): Promise<number> => {
-    if (!query.trim() || state.totalPages === 0) return 0;
+    if (!query || state.totalPages === 0) return 0;
 
     const flags = matchCase ? 'g' : 'gi';
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+    const regexPattern = wholeWord ? `\\b${escaped}\\b` : escaped;
 
     let totalReplaced = 0;
     const newPageItems: Record<number, PDFTextItem[]> = {};
@@ -761,12 +962,14 @@ export function usePDFEditor() {
       const items = state.pageItems[p] || await extractPageItems(p);
       const updated = items.map(it => {
         if (it.isDeleted) return it;
-        regex.lastIndex = 0;
-        if (regex.test(it.editedText)) {
-          totalReplaced++;
+        const regex = new RegExp(regexPattern, flags);
+        const originalText = it.editedText;
+        const matchesCount = (originalText.match(regex) || []).length;
+        if (matchesCount > 0) {
+          totalReplaced += matchesCount;
           return {
             ...it,
-            editedText: it.editedText.replace(regex, replaceWith),
+            editedText: originalText.replace(regex, replaceWith),
           };
         }
         return it;
@@ -789,16 +992,17 @@ export function usePDFEditor() {
     return totalReplaced;
   }, [state.totalPages, state.pageItems, extractPageItems, pushToHistory]);
 
+  // ── Redact All Matches (Precision Substring Bounding Boxes) ──────────────────
   const redactAllMatches = useCallback(async (
     query: string,
     matchCase: boolean,
     wholeWord: boolean
   ): Promise<number> => {
-    if (!query.trim() || state.totalPages === 0) return 0;
+    if (!query || state.totalPages === 0) return 0;
 
     const flags = matchCase ? 'g' : 'gi';
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+    const regexPattern = wholeWord ? `\\b${escaped}\\b` : escaped;
 
     let totalRedacted = 0;
     const newRedactions: Record<number, RedactionBox[]> = {};
@@ -810,18 +1014,29 @@ export function usePDFEditor() {
 
       for (const it of items) {
         if (it.isDeleted) continue;
-        regex.lastIndex = 0;
-        if (regex.test(it.editedText)) {
+        const text = it.editedText;
+        const regex = new RegExp(regexPattern, flags);
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(text)) !== null) {
           totalRedacted++;
+          const matchStart = match.index;
+          const matchEnd = match.index + match[0].length;
+          const box = calculateSubstringBox(it, matchStart, matchEnd);
+
           addedBoxes.push({
             id: `redact-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             pageIndex: p,
-            x: it.x - 2,
-            y: it.y - 2,
-            width: it.width + 4,
-            height: it.height + 4,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
             type: 'blackout',
           });
+
+          if (regex.lastIndex === match.index) {
+            regex.lastIndex++;
+          }
         }
       }
       newRedactions[p] = [...existingBoxes, ...addedBoxes];
@@ -851,13 +1066,14 @@ export function usePDFEditor() {
   const setVerifyOnExport = useCallback((verify: boolean) => setState(s => ({ ...s, verifyOnExport: verify })), []);
   const setVerificationReport = useCallback((report: VerificationReport | null) => setState(s => ({ ...s, verificationReport: report })), []);
   const setCurrentPage = useCallback((page: number) => setState(s => ({ ...s, currentPage: page })), []);
+
   const setScale = useCallback((newScale: number) => {
     setState(s => {
       const oldScale = s.scale;
       if (oldScale === newScale || oldScale <= 0) return { ...s, scale: newScale };
       const factor = newScale / oldScale;
 
-      // Rescale all pageItems (including added and repositioned items)
+      // Rescale all pageItems
       const newPageItems: Record<number, PDFTextItem[]> = {};
       for (const [pageNumStr, items] of Object.entries(s.pageItems)) {
         const pageNum = Number(pageNumStr);
@@ -942,9 +1158,17 @@ export function usePDFEditor() {
     const pdfDoc = pdfDocRef.current;
     if (!rawBytesRef.current || !pdfDoc) throw new Error('No PDF document loaded');
 
-    if (chosenMode === 'sanitized') {
+    // Check if blackout redactions exist
+    const hasBlackoutRedaction = Object.values(state.redactions)
+      .some(list => list.some(box => box.type === 'blackout'));
+
+    // Enforce safety: Do not allow silent vector export of confidential blackout redactions
+    const effectiveMode = (hasBlackoutRedaction && chosenMode === 'vector') ? 'sanitized' : chosenMode;
+
+    if (effectiveMode === 'sanitized') {
       const cleanDoc = await PDFDocument.create();
-      const exportScale = 2.5;
+      // True 300 DPI Export Scale: 300 / 72 points per inch ≈ 4.1667 (with safe cap for high page counts)
+      const exportScale = state.totalPages > 25 ? 2.5 : (300 / 72);
 
       for (let p = 1; p <= state.totalPages; p++) {
         const page = await pdfDoc.getPage(p);
@@ -1054,13 +1278,13 @@ export function usePDFEditor() {
           offCtx.restore();
         }
 
-        const dataUrl = offCanvas.toDataURL('image/jpeg', 0.95);
-        const imgRes = await fetch(dataUrl);
-        const imgBuffer = await imgRes.arrayBuffer();
+        // High quality raster embedding
+        const dataUrl = offCanvas.toDataURL('image/png');
+        const pngBytes = dataUrlToUint8Array(dataUrl);
+        const embeddedPng = await cleanDoc.embedPng(pngBytes);
 
-        const embeddedJpg = await cleanDoc.embedJpg(imgBuffer);
         const newPage = cleanDoc.addPage([origViewport.width, origViewport.height]);
-        newPage.drawImage(embeddedJpg, {
+        newPage.drawImage(embeddedPng, {
           x: 0,
           y: 0,
           width: origViewport.width,
@@ -1105,7 +1329,7 @@ export function usePDFEditor() {
         const page = pages[p - 1];
         const pageHeight = page.getHeight();
 
-        // 1. Draw Redaction Boxes
+        // 1. Draw Redaction Boxes (Whiteout / Overlay)
         const pageRedactions = state.redactions[p] || [];
         for (const box of pageRedactions) {
           const pdfX = box.x * pdfScale;
@@ -1263,7 +1487,7 @@ export function usePDFEditor() {
       }
     }
 
-    // Check current page items in case pageItems dictionary hasn't cached it yet
+    // Check current page items
     const curPageItems = state.textItems || [];
     const curPageRedactions = state.redactions[state.currentPage] || [];
     for (const item of curPageItems) {
@@ -1328,6 +1552,9 @@ export function usePDFEditor() {
       passed: allPassed,
       checks,
       metadataStripped: state.sanitizeMetadata,
+      auditNote: allPassed
+        ? 'The exported PDF was scanned and the redacted terms were not found in extractable PDF text.'
+        : 'Sensitive redacted terms were detected in the underlying extractable text streams.',
     };
   }, [state]);
 
@@ -1352,7 +1579,14 @@ export function usePDFEditor() {
     if (!rawBytesRef.current || !pdfDoc) return;
     setState(s => ({ ...s, isExporting: true, error: null }));
 
-    const chosenMode = modeOverride || state.exportMode;
+    const hasBlackoutRedaction = Object.values(state.redactions)
+      .some(list => list.some(box => box.type === 'blackout'));
+
+    const requestedMode = modeOverride || state.exportMode;
+    // Gating rule: Blackout redaction forces sanitized mode
+    const chosenMode: ExportMode = (hasBlackoutRedaction && requestedMode === 'vector')
+      ? 'sanitized'
+      : requestedMode;
 
     try {
       const pdfBytes = await generatePDFBytes(chosenMode);
@@ -1378,17 +1612,25 @@ export function usePDFEditor() {
       console.error(err);
       setState(s => ({ ...s, isExporting: false, error: 'Export failed. Please try again.' }));
     }
-  }, [generatePDFBytes, runVerificationAudit, state.exportMode, state.fileName, state.verifyOnExport]);
+  }, [generatePDFBytes, runVerificationAudit, state.exportMode, state.fileName, state.redactions, state.verifyOnExport]);
 
   const resetEditor = useCallback(() => {
     if (renderTaskRef.current) {
       try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
       renderTaskRef.current = null;
     }
-    pdfDocRef.current = null;
+    if (pdfDocRef.current) {
+      try {
+        pdfDocRef.current.cleanup();
+        (pdfDocRef.current as { destroy?: () => void }).destroy?.();
+      } catch { /* ignore */ }
+      pdfDocRef.current = null;
+    }
     rawBytesRef.current = null;
     historyRef.current = [];
     futureRef.current = [];
+    editingPreValueRef.current = null;
+
     setState({
       fileName: '',
       totalPages: 0,
@@ -1420,6 +1662,10 @@ export function usePDFEditor() {
     state,
     loadPDF,
     renderPage,
+    beginTextEdit,
+    updateTextWithoutHistory,
+    commitTextEdit,
+    cancelTextEdit,
     updateText,
     updateFormat,
     updatePosition,

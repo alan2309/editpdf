@@ -4,12 +4,8 @@ import {
   Check, ArrowRight
 } from 'lucide-react';
 
-export interface SearchMatch {
-  itemId: string;
-  pageNumber: number;
-  originalText: string;
-  matchedText: string;
-}
+import type { SearchMatch } from '../types/pdf';
+export type { SearchMatch };
 
 interface FindReplaceBarProps {
   isOpen: boolean;

@@ -45,6 +45,7 @@ export interface PDFPageInfo {
   pageIndex: number;
   width: number;
   height: number;
+  rotation?: number; // 0, 90, 180, 270
 }
 
 export interface RedactionBox {
@@ -77,8 +78,20 @@ export interface PDFStampItem {
   y: number;       // canvas-space y
   width: number;   // canvas-space width
   height: number;  // canvas-space height
-  rotation: number; // in degrees e.g. -15, 0, 15, 45
+  rotation: number; // in degrees e.g. -180 to 180
   opacity: number;  // 0.1 to 1.0
+}
+
+export interface SearchMatch {
+  itemId: string;
+  pageNumber: number;
+  originalText: string;
+  matchedText: string;
+  matchStart: number;
+  matchEnd: number;
+  query: string;
+  matchCase: boolean;
+  wholeWord: boolean;
 }
 
 export type EditorTool = 'select' | 'text' | 'blackout' | 'whiteout';
@@ -98,6 +111,7 @@ export interface VerificationReport {
   passed: boolean;
   checks: VerificationCheck[];
   metadataStripped: boolean;
+  auditNote?: string;
 }
 
 export interface PDFEditorState {
@@ -125,6 +139,3 @@ export interface PDFEditorState {
   isExporting: boolean;
   error: string | null;
 }
-
-
-

@@ -18,7 +18,9 @@ function MainApp() {
   const { currentPath } = useRouter();
 
   const {
-    state, loadPDF, renderPage, updateText, updateFormat, updatePosition, deleteItem,
+    state, loadPDF, renderPage,
+    beginTextEdit, updateTextWithoutHistory, commitTextEdit, cancelTextEdit,
+    updateText, updateFormat, updatePosition, deleteItem,
     addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
     addSignature, updateSignature, deleteSignature, setActiveSignature,
     addStamp, updateStamp, deleteStamp, setActiveStamp,
@@ -78,6 +80,10 @@ function MainApp() {
           <PDFEditor
             state={state}
             renderPage={renderPage}
+            beginTextEdit={beginTextEdit}
+            updateTextWithoutHistory={updateTextWithoutHistory}
+            commitTextEdit={commitTextEdit}
+            cancelTextEdit={cancelTextEdit}
             updateText={updateText}
             updateFormat={updateFormat}
             updatePosition={updatePosition}
