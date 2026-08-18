@@ -3,7 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
-  ExportMode, VerificationReport, VerificationCheck
+  ExportMode, VerificationReport, VerificationCheck, PDFSignatureItem
 } from '../types/pdf';
 import { DEFAULT_FORMAT } from '../types/pdf';
 
@@ -41,6 +41,18 @@ function resolveStdFont(fmt: TextFormat): StandardFonts {
   return StandardFonts.Helvetica;
 }
 
+// Convert dataURL to Uint8Array for pdf-lib image embedding
+function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+  const base64 = dataUrl.split(',')[1];
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export function usePDFEditor() {
   const [state, setState] = useState<PDFEditorState>({
     fileName: '',
@@ -50,8 +62,10 @@ export function usePDFEditor() {
     textItems: [],
     pageItems: {},
     redactions: {},
+    signatures: {},
     activeItemId: null,
     activeRedactionId: null,
+    activeSignatureId: null,
     activeTool: 'select',
     exportMode: 'sanitized',
     sanitizeMetadata: true,
@@ -70,11 +84,24 @@ export function usePDFEditor() {
   const currentRenderIdRef = useRef<number>(0);
 
   // Undo / Redo Stacks
-  const historyRef = useRef<{ pageItems: Record<number, PDFTextItem[]>; redactions: Record<number, RedactionBox[]> }[]>([]);
-  const futureRef = useRef<{ pageItems: Record<number, PDFTextItem[]>; redactions: Record<number, RedactionBox[]> }[]>([]);
+  const historyRef = useRef<{
+    pageItems: Record<number, PDFTextItem[]>;
+    redactions: Record<number, RedactionBox[]>;
+    signatures: Record<number, PDFSignatureItem[]>;
+  }[]>([]);
+
+  const futureRef = useRef<{
+    pageItems: Record<number, PDFTextItem[]>;
+    redactions: Record<number, RedactionBox[]>;
+    signatures: Record<number, PDFSignatureItem[]>;
+  }[]>([]);
 
   // Push helper for history tracking
-  const pushToHistory = useCallback((currentPages: Record<number, PDFTextItem[]>, currentRedactions: Record<number, RedactionBox[]>) => {
+  const pushToHistory = useCallback((
+    currentPages: Record<number, PDFTextItem[]>,
+    currentRedactions: Record<number, RedactionBox[]>,
+    currentSignatures: Record<number, PDFSignatureItem[]>
+  ) => {
     const pagesClone: Record<number, PDFTextItem[]> = {};
     for (const [k, items] of Object.entries(currentPages)) {
       pagesClone[Number(k)] = items.map(item => ({ ...item, format: { ...item.format } }));
@@ -83,7 +110,11 @@ export function usePDFEditor() {
     for (const [k, boxes] of Object.entries(currentRedactions)) {
       redactionsClone[Number(k)] = boxes.map(b => ({ ...b }));
     }
-    historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone });
+    const signaturesClone: Record<number, PDFSignatureItem[]> = {};
+    for (const [k, sigs] of Object.entries(currentSignatures)) {
+      signaturesClone[Number(k)] = sigs.map(s => ({ ...s }));
+    }
+    historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
     futureRef.current = []; // Clear redo stack
   }, []);
 
@@ -99,13 +130,18 @@ export function usePDFEditor() {
       for (const [k, boxes] of Object.entries(s.redactions)) {
         redactionsClone[Number(k)] = boxes.map(b => ({ ...b }));
       }
-      futureRef.current.push({ pageItems: pagesClone, redactions: redactionsClone });
+      const signaturesClone: Record<number, PDFSignatureItem[]> = {};
+      for (const [k, sigs] of Object.entries(s.signatures)) {
+        signaturesClone[Number(k)] = sigs.map(sig => ({ ...sig }));
+      }
+      futureRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
 
       const currentPgItems = previous.pageItems[s.currentPage] || [];
       return {
         ...s,
         pageItems: previous.pageItems,
         redactions: previous.redactions,
+        signatures: previous.signatures,
         textItems: currentPgItems,
         isDirty: true,
       };
@@ -124,13 +160,18 @@ export function usePDFEditor() {
       for (const [k, boxes] of Object.entries(s.redactions)) {
         redactionsClone[Number(k)] = boxes.map(b => ({ ...b }));
       }
-      historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone });
+      const signaturesClone: Record<number, PDFSignatureItem[]> = {};
+      for (const [k, sigs] of Object.entries(s.signatures)) {
+        signaturesClone[Number(k)] = sigs.map(sig => ({ ...sig }));
+      }
+      historyRef.current.push({ pageItems: pagesClone, redactions: redactionsClone, signatures: signaturesClone });
 
       const currentPgItems = next.pageItems[s.currentPage] || [];
       return {
         ...s,
         pageItems: next.pageItems,
         redactions: next.redactions,
+        signatures: next.signatures,
         textItems: currentPgItems,
         isDirty: true,
       };
@@ -146,8 +187,10 @@ export function usePDFEditor() {
       textItems: [],
       pageItems: {},
       redactions: {},
+      signatures: {},
       activeItemId: null,
       activeRedactionId: null,
+      activeSignatureId: null,
       activeTool: 'select',
       verificationReport: null,
     }));
@@ -289,7 +332,7 @@ export function usePDFEditor() {
   // ── Update text ────────────────────────────────────────────────────────────
   const updateText = useCallback((id: string, newText: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, editedText: newText } : item
       );
@@ -305,7 +348,7 @@ export function usePDFEditor() {
   // ── Update format ──────────────────────────────────────────────────────────
   const updateFormat = useCallback((id: string, partial: Partial<TextFormat>) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, format: { ...item.format, ...partial } } : item
       );
@@ -321,7 +364,7 @@ export function usePDFEditor() {
   // ── Update position ────────────────────────────────────────────────────────
   const updatePosition = useCallback((id: string, x: number, y: number) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, x, y } : item
       );
@@ -337,7 +380,7 @@ export function usePDFEditor() {
   // ── Delete item (hides from view + blanks in export) ─────────────────
   const deleteItem = useCallback((id: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const updated = s.textItems.map(item =>
         item.id === id ? { ...item, isDeleted: true } : item
       );
@@ -354,7 +397,7 @@ export function usePDFEditor() {
   // ── Add new text field ─────────────────────────────────────────────────────
   const addTextField = useCallback(() => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const newId = `added-${Date.now()}`;
       const x = 100;
       const y = 120;
@@ -392,7 +435,7 @@ export function usePDFEditor() {
   // ── Redaction Box Handlers ──────────────────────────────────────────────────
   const addRedactionBox = useCallback((box: Omit<RedactionBox, 'id' | 'pageIndex'> & { pageIndex?: number }) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const pageNum = box.pageIndex ?? s.currentPage;
       const newBox: RedactionBox = {
         id: `redact-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -416,7 +459,7 @@ export function usePDFEditor() {
 
   const updateRedactionBox = useCallback((id: string, partial: Partial<RedactionBox>) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const pageNum = s.currentPage;
       const existing = s.redactions[pageNum] || [];
       const updated = existing.map(b => b.id === id ? { ...b, ...partial } : b);
@@ -430,7 +473,7 @@ export function usePDFEditor() {
 
   const deleteRedactionBox = useCallback((id: string) => {
     setState(s => {
-      pushToHistory(s.pageItems, s.redactions);
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
       const pageNum = s.currentPage;
       const existing = s.redactions[pageNum] || [];
       const updated = existing.filter(b => b.id !== id);
@@ -443,8 +486,63 @@ export function usePDFEditor() {
     });
   }, [pushToHistory]);
 
+  // ── Digital Signature Handlers ──────────────────────────────────────────────
+  const addSignature = useCallback((sig: Omit<PDFSignatureItem, 'id' | 'pageIndex'> & { pageIndex?: number }) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      const pageNum = sig.pageIndex ?? s.currentPage;
+      const newSig: PDFSignatureItem = {
+        id: `sig-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        pageIndex: pageNum,
+        dataUrl: sig.dataUrl,
+        x: sig.x,
+        y: sig.y,
+        width: sig.width,
+        height: sig.height,
+      };
+      const existing = s.signatures[pageNum] || [];
+      const updated = [...existing, newSig];
+      return {
+        ...s,
+        isDirty: true,
+        signatures: { ...s.signatures, [pageNum]: updated },
+        activeSignatureId: newSig.id,
+      };
+    });
+  }, [pushToHistory]);
+
+  const updateSignature = useCallback((id: string, partial: Partial<PDFSignatureItem>) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      const pageNum = s.currentPage;
+      const existing = s.signatures[pageNum] || [];
+      const updated = existing.map(sig => sig.id === id ? { ...sig, ...partial } : sig);
+      return {
+        ...s,
+        isDirty: true,
+        signatures: { ...s.signatures, [pageNum]: updated },
+      };
+    });
+  }, [pushToHistory]);
+
+  const deleteSignature = useCallback((id: string) => {
+    setState(s => {
+      pushToHistory(s.pageItems, s.redactions, s.signatures);
+      const pageNum = s.currentPage;
+      const existing = s.signatures[pageNum] || [];
+      const updated = existing.filter(sig => sig.id !== id);
+      return {
+        ...s,
+        isDirty: true,
+        signatures: { ...s.signatures, [pageNum]: updated },
+        activeSignatureId: s.activeSignatureId === id ? null : s.activeSignatureId,
+      };
+    });
+  }, [pushToHistory]);
+
   const setActiveItem = useCallback((id: string | null) => setState(s => ({ ...s, activeItemId: id })), []);
   const setActiveRedaction = useCallback((id: string | null) => setState(s => ({ ...s, activeRedactionId: id })), []);
+  const setActiveSignature = useCallback((id: string | null) => setState(s => ({ ...s, activeSignatureId: id })), []);
   const setActiveTool = useCallback((tool: EditorTool) => setState(s => ({ ...s, activeTool: tool })), []);
   const setExportMode = useCallback((mode: ExportMode) => setState(s => ({ ...s, exportMode: mode })), []);
   const setSanitizeMetadata = useCallback((sanitize: boolean) => setState(s => ({ ...s, sanitizeMetadata: sanitize })), []);
@@ -529,6 +627,21 @@ export function usePDFEditor() {
           offCtx.fillRect(box.x * ratio, box.y * ratio, box.width * ratio, box.height * ratio);
         }
 
+        // 3. Draw Digital Signatures
+        const pageSignatures = state.signatures[p] || [];
+        for (const sig of pageSignatures) {
+          const img = new Image();
+          img.src = sig.dataUrl;
+          await new Promise(resolve => {
+            if (img.complete) resolve(null);
+            else {
+              img.onload = () => resolve(null);
+              img.onerror = () => resolve(null);
+            }
+          });
+          offCtx.drawImage(img, sig.x * ratio, sig.y * ratio, sig.width * ratio, sig.height * ratio);
+        }
+
         const dataUrl = offCanvas.toDataURL('image/jpeg', 0.95);
         const imgRes = await fetch(dataUrl);
         const imgBuffer = await imgRes.arrayBuffer();
@@ -580,6 +693,7 @@ export function usePDFEditor() {
         const page = pages[p - 1];
         const pageHeight = page.getHeight();
 
+        // 1. Draw Redaction Boxes
         const pageRedactions = state.redactions[p] || [];
         for (const box of pageRedactions) {
           const pdfX = box.x * pdfScale;
@@ -594,6 +708,7 @@ export function usePDFEditor() {
           });
         }
 
+        // 2. Draw Text Overlays
         const pageItems = state.pageItems[p] || (p === state.currentPage ? state.textItems : []);
         for (const item of pageItems) {
           const hasTextChange = item.editedText !== item.originalText;
@@ -648,6 +763,25 @@ export function usePDFEditor() {
               thickness: Math.max(pdfFontSize * 0.06, 0.5),
               color: rgb(r, g, b),
             });
+          }
+        }
+
+        // 3. Draw Digital Signatures in Vector Mode
+        const pageSignatures = state.signatures[p] || [];
+        for (const sig of pageSignatures) {
+          try {
+            const pngBytes = dataUrlToUint8Array(sig.dataUrl);
+            const embeddedPng = await pdfLibDoc.embedPng(pngBytes);
+            const pdfX = sig.x * pdfScale;
+            const pdfY = pageHeight - ((sig.y + sig.height) * pdfScale);
+            page.drawImage(embeddedPng, {
+              x: pdfX,
+              y: pdfY,
+              width: sig.width * pdfScale,
+              height: sig.height * pdfScale,
+            });
+          } catch (err) {
+            console.error('Failed to embed signature PNG in vector mode:', err);
           }
         }
       }
@@ -830,8 +964,10 @@ export function usePDFEditor() {
       textItems: [],
       pageItems: {},
       redactions: {},
+      signatures: {},
       activeItemId: null,
       activeRedactionId: null,
+      activeSignatureId: null,
       activeTool: 'select',
       exportMode: 'sanitized',
       sanitizeMetadata: true,
@@ -857,6 +993,10 @@ export function usePDFEditor() {
     addRedactionBox,
     updateRedactionBox,
     deleteRedactionBox,
+    addSignature,
+    updateSignature,
+    deleteSignature,
+    setActiveSignature,
     setActiveRedaction,
     setActiveTool,
     setExportMode,

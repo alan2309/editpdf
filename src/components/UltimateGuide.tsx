@@ -40,6 +40,24 @@ export default function UltimateGuide() {
       adobe: 'Heavy desktop launch',
     },
     {
+      feature: 'Digital Signatures (Draw, Type, Upload)',
+      clientSide: 'Included (100% In-Browser & Saved Signatures)',
+      cloudTools: 'Paid Add-on / Restricted to 1/day',
+      adobe: 'Adobe Sign Subscription Required',
+    },
+    {
+      feature: 'Forensic Redaction Verification',
+      clientSide: 'Automated In-Browser Stream Audit',
+      cloudTools: 'None (Basic vector box overlay)',
+      adobe: 'Acrobat Pro Only',
+    },
+    {
+      feature: 'Multi-Page Persistent Edits',
+      clientSide: 'Seamless (Full Document Retention)',
+      cloudTools: 'Page limits or re-uploads',
+      adobe: 'Included',
+    },
+    {
       feature: 'Offline Capability',
       clientSide: 'Works fully offline once loaded',
       cloudTools: 'Fails without internet',

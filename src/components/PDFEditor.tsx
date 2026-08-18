@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X, RotateCcw, Info,
-  GripVertical, Plus, ShieldCheck, ShieldAlert, EyeOff, Eraser, MousePointer,
-  Trash2, CheckCircle2, AlertTriangle, FileCheck
+  GripVertical, Plus, ShieldCheck, EyeOff, Eraser, MousePointer,
+  Trash2, CheckCircle2, AlertTriangle, FileCheck, PenTool
 } from 'lucide-react';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,
-  ExportMode, VerificationReport
+  ExportMode, VerificationReport, PDFSignatureItem
 } from '../types/pdf';
 import TextFormatToolbar from './TextFormatToolbar';
+import SignatureModal from './SignatureModal';
 
 interface PDFEditorProps {
   state: PDFEditorState;
@@ -21,6 +22,10 @@ interface PDFEditorProps {
   addRedactionBox: (box: Omit<RedactionBox, 'id' | 'pageIndex'> & { pageIndex?: number }) => void;
   updateRedactionBox: (id: string, partial: Partial<RedactionBox>) => void;
   deleteRedactionBox: (id: string) => void;
+  addSignature: (sig: Omit<PDFSignatureItem, 'id' | 'pageIndex'> & { pageIndex?: number }) => void;
+  updateSignature: (id: string, partial: Partial<PDFSignatureItem>) => void;
+  deleteSignature: (id: string) => void;
+  setActiveSignature: (id: string | null) => void;
   setActiveRedaction: (id: string | null) => void;
   setActiveTool: (tool: EditorTool) => void;
   setExportMode: (mode: ExportMode) => void;
@@ -44,6 +49,7 @@ const MAX_SCALE = 3;
 export default function PDFEditor({
   state, renderPage, updateText, updateFormat, updatePosition, deleteItem,
   addTextField, addRedactionBox, updateRedactionBox: _updateRedactionBox, deleteRedactionBox,
+  addSignature, updateSignature, deleteSignature, setActiveSignature,
   setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
   setVerifyOnExport, setVerificationReport, runStandaloneVerification,
   undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor,
@@ -53,11 +59,21 @@ export default function PDFEditor({
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [showFontNote, setShowFontNote] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
 
   // Dragging State for Text
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  // Dragging / Resizing State for Signatures
+  const [draggingSigId, setDraggingSigId] = useState<string | null>(null);
+  const [dragSigPosition, setDragSigPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragSigStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+
+  const [resizingSigId, setResizingSigId] = useState<string | null>(null);
+  const [sigDimensions, setSigDimensions] = useState<{ w: number; h: number } | null>(null);
+  const resizeSigStartRef = useRef<{ mouseX: number; mouseY: number; startW: number; startH: number; ratio: number } | null>(null);
 
   // Drawing Redaction Box State
   const [isDrawingRedaction, setIsDrawingRedaction] = useState(false);
@@ -78,7 +94,7 @@ export default function PDFEditor({
     setEditValues(vals);
   }, [state.textItems]);
 
-  // Keyboard Shortcuts for Undo/Redo/Delete
+  // Keyboard Shortcuts for Undo/Redo/Delete/Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -107,6 +123,7 @@ export default function PDFEditor({
       } else if (e.key === 'Escape') {
         setActiveItem(null);
         setActiveRedaction(null);
+        setActiveSignature(null);
         setActiveTool('select');
         setIsDrawingRedaction(false);
         setDrawStart(null);
@@ -116,7 +133,7 @@ export default function PDFEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveTool]);
+  }, [undo, redo, setActiveItem, setActiveRedaction, setActiveSignature, setActiveTool]);
 
   // Handle Drag Move Action for text items
   const handleDragMouseDown = useCallback((id: string, itemX: number, itemY: number, e: React.MouseEvent) => {
@@ -132,41 +149,115 @@ export default function PDFEditor({
     };
   }, []);
 
-  // Global Mouse listeners for dragging to prevent sticky/laggy drags
+  // Handle Drag Move Action for signature stamps
+  const handleSignatureDragStart = useCallback((id: string, sigX: number, sigY: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveSignature(id);
+    setActiveItem(null);
+    setActiveRedaction(null);
+    setDraggingSigId(id);
+    setDragSigPosition({ x: sigX, y: sigY });
+    dragSigStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startX: sigX,
+      startY: sigY,
+    };
+  }, [setActiveItem, setActiveRedaction, setActiveSignature]);
+
+  // Handle Resize Action for signature stamps
+  const handleSignatureResizeStart = useCallback((id: string, w: number, h: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveSignature(id);
+    setResizingSigId(id);
+    setSigDimensions({ w, h });
+    resizeSigStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startW: w,
+      startH: h,
+      ratio: w / h,
+    };
+  }, [setActiveSignature]);
+
+  // Global Mouse listeners for dragging & resizing
   useEffect(() => {
-    if (!draggingId || !dragStartRef.current) return;
-
     const handleMouseMove = (e: MouseEvent) => {
-      const start = dragStartRef.current;
-      if (!start) return;
-
-      const deltaX = e.clientX - start.mouseX;
-      const deltaY = e.clientY - start.mouseY;
-
       const canvas = canvasRef.current;
       const canvasWidth = canvas ? canvas.width : 2000;
       const canvasHeight = canvas ? canvas.height : 2000;
 
-      const item = state.textItems.find(i => i.id === draggingId);
-      if (!item) return;
+      // 1. Text item dragging
+      if (draggingId && dragStartRef.current) {
+        const start = dragStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const deltaY = e.clientY - start.mouseY;
+        const item = state.textItems.find(i => i.id === draggingId);
+        if (item) {
+          const newX = Math.max(0, Math.min(canvasWidth - item.width, start.startX + deltaX));
+          const newY = Math.max(0, Math.min(canvasHeight - item.height, start.startY + deltaY));
+          setDragPosition({ x: newX, y: newY });
+        }
+      }
 
-      const newX = Math.max(0, Math.min(canvasWidth - item.width, start.startX + deltaX));
-      const newY = Math.max(0, Math.min(canvasHeight - item.height, start.startY + deltaY));
+      // 2. Signature dragging
+      if (draggingSigId && dragSigStartRef.current) {
+        const start = dragSigStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const deltaY = e.clientY - start.mouseY;
+        const currentSigs = state.signatures[state.currentPage] || [];
+        const sig = currentSigs.find(s => s.id === draggingSigId);
+        if (sig) {
+          const newX = Math.max(0, Math.min(canvasWidth - sig.width, start.startX + deltaX));
+          const newY = Math.max(0, Math.min(canvasHeight - sig.height, start.startY + deltaY));
+          setDragSigPosition({ x: newX, y: newY });
+        }
+      }
 
-      setDragPosition({ x: newX, y: newY });
+      // 3. Signature resizing
+      if (resizingSigId && resizeSigStartRef.current) {
+        const start = resizeSigStartRef.current;
+        const deltaX = e.clientX - start.mouseX;
+        const newW = Math.max(40, Math.min(600, start.startW + deltaX));
+        const newH = Math.max(20, newW / start.ratio);
+        setSigDimensions({ w: newW, h: newH });
+      }
     };
 
     const handleMouseUp = () => {
-      const start = dragStartRef.current;
-      if (start && dragPosition) {
+      // 1. Text item drop
+      if (draggingId && dragStartRef.current && dragPosition) {
+        const start = dragStartRef.current;
         const hasMoved = Math.abs(dragPosition.x - start.startX) > 0.5 || Math.abs(dragPosition.y - start.startY) > 0.5;
         if (hasMoved) {
           updatePosition(draggingId, dragPosition.x, dragPosition.y);
         }
+        setDraggingId(null);
+        setDragPosition(null);
+        dragStartRef.current = null;
       }
-      setDraggingId(null);
-      setDragPosition(null);
-      dragStartRef.current = null;
+
+      // 2. Signature drop
+      if (draggingSigId && dragSigStartRef.current && dragSigPosition) {
+        const start = dragSigStartRef.current;
+        const hasMoved = Math.abs(dragSigPosition.x - start.startX) > 0.5 || Math.abs(dragSigPosition.y - start.startY) > 0.5;
+        if (hasMoved) {
+          updateSignature(draggingSigId, { x: dragSigPosition.x, y: dragSigPosition.y });
+        }
+        setDraggingSigId(null);
+        setDragSigPosition(null);
+        dragSigStartRef.current = null;
+      }
+
+      // 3. Signature resize end
+      if (resizingSigId && resizeSigStartRef.current && sigDimensions) {
+        updateSignature(resizingSigId, { width: sigDimensions.w, height: sigDimensions.h });
+        setResizingSigId(null);
+        setSigDimensions(null);
+        resizeSigStartRef.current = null;
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -176,13 +267,14 @@ export default function PDFEditor({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingId, dragPosition, state.textItems, updatePosition]);
+  }, [draggingId, dragPosition, draggingSigId, dragSigPosition, resizingSigId, sigDimensions, state.signatures, state.currentPage, state.textItems, updatePosition, updateSignature]);
 
   // Handle Redaction Box Interactive Drawing on Canvas
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (state.activeTool !== 'blackout' && state.activeTool !== 'whiteout') {
       setActiveItem(null);
       setActiveRedaction(null);
+      setActiveSignature(null);
       return;
     }
 
@@ -239,8 +331,9 @@ export default function PDFEditor({
   const handleItemClick = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveRedaction(null);
+    setActiveSignature(null);
     setActiveItem(id);
-  }, [setActiveItem, setActiveRedaction]);
+  }, [setActiveItem, setActiveRedaction, setActiveSignature]);
 
   const handleInputChange = useCallback((id: string, val: string) => {
     setEditValues(prev => ({ ...prev, [id]: val }));
@@ -256,14 +349,31 @@ export default function PDFEditor({
     setScale(next);
   };
 
+  // Handle signature inserted from modal
+  const handleSignatureInserted = (dataUrl: string, width: number, height: number) => {
+    const canvas = canvasRef.current;
+    const defaultX = canvas ? Math.max(50, canvas.width / 2 - width / 2) : 100;
+    const defaultY = canvas ? Math.max(50, canvas.height / 2 - height / 2) : 200;
+
+    addSignature({
+      dataUrl,
+      x: defaultX,
+      y: defaultY,
+      width,
+      height,
+    });
+  };
+
   const {
-    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId,
+    totalPages, currentPage, scale, textItems, activeItemId, activeRedactionId, activeSignatureId,
     activeTool, exportMode, sanitizeMetadata, verifyOnExport, verificationReport,
     isVerifying, isDirty, isLoading, isExporting, error
   } = state;
 
   const currentRedactions = state.redactions[currentPage] || [];
+  const currentSignatures = state.signatures[currentPage] || [];
   const allRedactionCount = Object.values(state.redactions).reduce((acc, list) => acc + list.length, 0);
+  const allSignatureCount = Object.values(state.signatures).reduce((acc, list) => acc + list.length, 0);
 
   return (
     <section id="editor" style={{ padding: '0 0 4rem' }}>
@@ -311,6 +421,25 @@ export default function PDFEditor({
               title="Add New Text Field"
             >
               <Plus size={13} color="#4d6bfa" /> Add Text
+            </button>
+
+            <button
+              className="btn-secondary"
+              style={{
+                padding: '0.35rem 0.75rem',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: 'rgba(77,107,250,0.12)',
+                borderColor: 'rgba(77,107,250,0.3)',
+                color: '#7c9aff',
+                fontWeight: 600,
+              }}
+              onClick={() => setShowSignatureModal(true)}
+              title="Sign PDF: Draw, Type, or Upload Signature Stamp"
+            >
+              <PenTool size={13} color="#7c9aff" /> Sign PDF
             </button>
 
             <button
@@ -493,6 +622,7 @@ export default function PDFEditor({
             if (activeTool === 'select') {
               setActiveItem(null);
               setActiveRedaction(null);
+              setActiveSignature(null);
             }
           }}
         >
@@ -557,6 +687,7 @@ export default function PDFEditor({
                       onClick={e => {
                         e.stopPropagation();
                         setActiveItem(null);
+                        setActiveSignature(null);
                         setActiveRedaction(box.id);
                       }}
                       style={{
@@ -603,6 +734,110 @@ export default function PDFEditor({
                         >
                           <Trash2 size={12} />
                         </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Digital Signature Stamps for Current Page */}
+                {currentSignatures.map(sig => {
+                  const isSelected = activeSignatureId === sig.id;
+                  const isCurrentDragging = draggingSigId === sig.id;
+                  const sigX = isCurrentDragging && dragSigPosition ? dragSigPosition.x : sig.x;
+                  const sigY = isCurrentDragging && dragSigPosition ? dragSigPosition.y : sig.y;
+
+                  const isCurrentResizing = resizingSigId === sig.id;
+                  const sigW = isCurrentResizing && sigDimensions ? sigDimensions.w : sig.width;
+                  const sigH = isCurrentResizing && sigDimensions ? sigDimensions.h : sig.height;
+
+                  return (
+                    <div
+                      key={sig.id}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setActiveItem(null);
+                        setActiveRedaction(null);
+                        setActiveSignature(sig.id);
+                      }}
+                      onMouseDown={e => handleSignatureDragStart(sig.id, sig.x, sig.y, e)}
+                      style={{
+                        position: 'absolute',
+                        left: sigX,
+                        top: sigY,
+                        width: sigW,
+                        height: sigH,
+                        border: isSelected ? '2px dashed #4d6bfa' : '1px solid transparent',
+                        borderRadius: 4,
+                        boxShadow: isSelected ? '0 0 10px rgba(77,107,250,0.4)' : 'none',
+                        zIndex: 20,
+                        cursor: 'grab',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        touchAction: 'none',
+                      }}
+                    >
+                      <img
+                        src={sig.dataUrl}
+                        alt="Digital Signature"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          pointerEvents: 'none',
+                          userSelect: 'none',
+                        }}
+                      />
+
+                      {/* Delete Signature Button */}
+                      {isSelected && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            deleteSignature(sig.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: -12,
+                            right: -12,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: '#ef4444',
+                            color: '#fff',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                            zIndex: 30,
+                          }}
+                          title="Remove signature"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+
+                      {/* Resize Corner Handle */}
+                      {isSelected && (
+                        <div
+                          onMouseDown={e => handleSignatureResizeStart(sig.id, sig.width, sig.height, e)}
+                          style={{
+                            position: 'absolute',
+                            bottom: -6,
+                            right: -6,
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            background: '#4d6bfa',
+                            border: '2px solid #fff',
+                            cursor: 'nwse-resize',
+                            zIndex: 30,
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                          }}
+                          title="Drag to resize signature"
+                        />
                       )}
                     </div>
                   );
@@ -778,16 +1013,26 @@ export default function PDFEditor({
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 6px #4ade80' }} />
               <span>Document modified across {Object.keys(state.pageItems).length || 1} page(s)</span>
               {allRedactionCount > 0 && (
-                <span style={{ color: '#fca5a5', fontWeight: 600 }}>· {allRedactionCount} Redaction(s) Active</span>
+                <span style={{ color: '#fca5a5', fontWeight: 600 }}>· {allRedactionCount} Redaction(s)</span>
+              )}
+              {allSignatureCount > 0 && (
+                <span style={{ color: '#7c9aff', fontWeight: 600 }}>· {allSignatureCount} Signature(s)</span>
               )}
             </div>
             <div>
-              Ready to export · 100% In-Browser Sanitization
+              Ready to export · 100% In-Browser Sanitization & Signing
             </div>
           </div>
         )}
 
       </div>
+
+      {/* Signature Creator Modal */}
+      <SignatureModal
+        isOpen={showSignatureModal}
+        onClose={() => setShowSignatureModal(false)}
+        onInsert={handleSignatureInserted}
+      />
 
       {/* Export & Sanitization Settings Modal */}
       {showExportModal && (
@@ -883,7 +1128,7 @@ export default function PDFEditor({
                     <strong style={{ color: '#f0f0f0', fontSize: '0.92rem' }}>Standard Vector Overlay</strong>
                   </div>
                   <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(240,240,240,0.65)', lineHeight: 1.5 }}>
-                    Adds text & shape overlays on top of the original vector streams. Keeps text selectable in external viewers. <em>(Not recommended for confidential PII redactions)</em>.
+                    Adds text, signature & shape overlays on top of the original vector streams. Keeps text selectable in external viewers. <em>(Not recommended for confidential PII redactions)</em>.
                   </p>
                 </div>
               </label>

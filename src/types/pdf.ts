@@ -57,6 +57,16 @@ export interface RedactionBox {
   type: 'blackout' | 'whiteout';
 }
 
+export interface PDFSignatureItem {
+  id: string;
+  pageIndex: number;
+  dataUrl: string; // Base64 PNG image
+  x: number;       // canvas-space x
+  y: number;       // canvas-space y
+  width: number;   // canvas-space width
+  height: number;  // canvas-space height
+}
+
 export type EditorTool = 'select' | 'text' | 'blackout' | 'whiteout';
 export type ExportMode = 'sanitized' | 'vector';
 
@@ -84,8 +94,10 @@ export interface PDFEditorState {
   textItems: PDFTextItem[];
   pageItems: Record<number, PDFTextItem[]>;
   redactions: Record<number, RedactionBox[]>;
+  signatures: Record<number, PDFSignatureItem[]>;
   activeItemId: string | null;
   activeRedactionId: string | null;
+  activeSignatureId: string | null;
   activeTool: EditorTool;
   exportMode: ExportMode;
   sanitizeMetadata: boolean;
@@ -97,4 +109,5 @@ export interface PDFEditorState {
   isExporting: boolean;
   error: string | null;
 }
+
 

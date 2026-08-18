@@ -20,6 +20,7 @@ function MainApp() {
   const {
     state, loadPDF, renderPage, updateText, updateFormat, updatePosition, deleteItem,
     addTextField, addRedactionBox, updateRedactionBox, deleteRedactionBox,
+    addSignature, updateSignature, deleteSignature, setActiveSignature,
     setActiveRedaction, setActiveTool, setExportMode, setSanitizeMetadata,
     setVerifyOnExport, setVerificationReport, runStandaloneVerification,
     undo, redo, setActiveItem, setCurrentPage, setScale, exportPDF, resetEditor
@@ -83,6 +84,10 @@ function MainApp() {
             addRedactionBox={addRedactionBox}
             updateRedactionBox={updateRedactionBox}
             deleteRedactionBox={deleteRedactionBox}
+            addSignature={addSignature}
+            updateSignature={updateSignature}
+            deleteSignature={deleteSignature}
+            setActiveSignature={setActiveSignature}
             setActiveRedaction={setActiveRedaction}
             setActiveTool={setActiveTool}
             setExportMode={setExportMode}

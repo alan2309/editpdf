@@ -15,36 +15,36 @@ export interface PageSEO {
 
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
-    title: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
-    description: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Click any text to edit, format, and download modified PDFs instantly.',
-    keywords: '100% private pdf editor, edit pdf online free no upload, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, redact pdf in browser, chrome pdf editor',
+    title: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free (No Upload)',
+    description: 'Free, private online PDF text editor & digital signature tool. 100% in-browser processing, no uploads. Edit text, draw signatures, redact sensitive data, and download instantly.',
+    keywords: '100% private pdf editor, edit pdf online free no upload, sign pdf online free, electronic signature pdf, draw signature on pdf, type signature pdf, redact pdf in browser, free pdf editor, client-side pdf editor, edit pdf text online, browser pdf editor, secure pdf editor, edit bank statement pdf, chrome pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Editor | Edit PDF Online Free (No Upload)',
-    ogDescription: 'Free, private online PDF text editor. 100% in-browser processing, no uploads required. Edit text, format fonts, and download instantly.',
-    h1: '100% Private PDF Text Editor',
-    h1Highlight: 'Edit in Browser',
-    h1Subtitle: '(No Server Upload)',
-    badge: '100% Private · Zero Server Upload · No Signup Required',
+    ogTitle: '100% Private PDF Editor | Edit, Sign & Redact PDF Online Free',
+    ogDescription: 'Free, private online PDF editor. 100% in-browser processing, no uploads required. Edit text, sign contracts, format fonts, and sanitize sensitive data instantly.',
+    h1: '100% Private PDF Text Editor & Signer',
+    h1Highlight: 'Edit & Sign in Browser',
+    h1Subtitle: '(Zero Server Upload · 100% Confidential)',
+    badge: '100% Private · Digital Signatures · True Redaction · Zero Server Upload',
     faqs: [
       {
-        q: 'Is this PDF text editor really free?',
-        a: 'Yes, it is 100% free to use with no hidden fees, no signup required, and no limits on basic usage.'
+        q: 'Is this PDF editor and digital signature tool really free?',
+        a: 'Yes, it is 100% free to use with no hidden fees, no watermark, no signup required, and no usage limits.'
+      },
+      {
+        q: 'Can I sign contracts, NDAs, and forms with a digital signature?',
+        a: 'Yes! You can draw a signature with your mouse or stylus, type your name in elegant cursive handwriting fonts, or upload a photo of your signature with automatic background removal. Signatures are saved in your browser for 1-click reuse across multi-page documents.'
       },
       {
         q: 'Does my PDF get uploaded to any server?',
         a: 'No. Unlike other tools, our PDF editor processes your file entirely in your web browser. Your file never leaves your device and is never uploaded to a cloud server, ensuring 100% privacy.'
       },
       {
-        q: 'How is this different from Adobe Acrobat?',
-        a: 'Adobe requires you to upload your files to their servers and often requires an account. We require no signup and process everything locally in your browser, making it much safer for confidential documents.'
+        q: 'How does the Redaction Verification feature protect sensitive data?',
+        a: 'When you redact confidential PII, our Permanent Sanitization engine completely purges underlying text streams. Our automated Redaction Verification scanner then audits the exported PDF binary to confirm zero trace of the redacted text remains.'
       },
       {
-        q: 'What types of PDFs can I edit?',
-        a: 'You can edit any text-based PDF up to 50MB. Scanned image-based PDFs are not currently supported for direct text editing.'
-      },
-      {
-        q: 'Will the edited text match the original PDF fonts?',
-        a: 'When you edit text, the editor matches the font family (Helvetica/Sans-Serif, Times-Roman/Serif, or Courier/Monospace), font size, styling (bold, italic, underline), and text color with precision.'
+        q: 'Will my edits persist across multiple pages in long documents?',
+        a: 'Yes. Edits, font formatting, additions, redaction boxes, and digital signatures are saved in an indexed page dictionary and persist seamlessly across all pages during export.'
       },
       {
         q: 'Is this tool compliant with GDPR, HIPAA, and CCPA regulations?',
