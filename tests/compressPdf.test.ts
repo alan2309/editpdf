@@ -11,6 +11,7 @@ import {
   createRotatedPagesPdf,
   createTransparentContentPdf,
 } from './fixtures/createFixtures';
+import { loadExternalPdf } from './fixtures/externalFixtures';
 
 function makeFile(bytes: Uint8Array, name: string): File {
   return new File([bytes as BlobPart], name, { type: 'application/pdf' });
@@ -105,7 +106,6 @@ describe('Compress PDF - Complete Test Suite', () => {
     const file = makeFile(textBytes, 'sample.pdf');
 
     const res = await compressPdf(file, { mode: 'safe' });
-    // If output is not smaller, isOriginalRetained should be set and savings 0
     if (res.fileSize >= res.originalSize!) {
       expect(res.isCompressed).toBe(false);
       expect(res.isOriginalRetained).toBe(true);
@@ -120,5 +120,31 @@ describe('Compress PDF - Complete Test Suite', () => {
     const res = await compressPdf(file, { mode: 'maximum', targetDpi: 100, quality: 0.6 });
     expect(res.pageCount).toBe(1);
     expect(res.blob.size).toBeGreaterThan(0);
+  });
+
+  it('TEST 8: Maximum compression compares rendered viewport dimensions and orientation across all 4 rotations (0°, 90°, 180°, 270°)', async () => {
+    const mixedRotBytes = loadExternalPdf('ext-mixed-orientations-sizes.pdf');
+    const file = makeFile(mixedRotBytes, 'mixed-rot.pdf');
+
+    const sourceDoc = await pdfjsLib.getDocument({ data: mixedRotBytes }).promise;
+    const res = await compressPdf(file, { mode: 'maximum', targetDpi: 72, quality: 0.8 });
+
+    const outDoc = await pdfjsLib.getDocument({ data: new Uint8Array(await res.blob.arrayBuffer()) }).promise;
+    expect(outDoc.numPages).toBe(sourceDoc.numPages);
+
+    for (let p = 1; p <= sourceDoc.numPages; p++) {
+      const srcPage = await sourceDoc.getPage(p);
+      const outPage = await outDoc.getPage(p);
+
+      const srcViewport = srcPage.getViewport({ scale: 1.0 });
+      const outViewport = outPage.getViewport({ scale: 1.0 });
+
+      // Compare rendered viewport dimensions
+      expect(outViewport.width).toBeCloseTo(srcViewport.width, 0);
+      expect(outViewport.height).toBeCloseTo(srcViewport.height, 0);
+
+      // Compare orientation and rotation
+      expect(outPage.rotate).toBe(srcPage.rotate);
+    }
   });
 });

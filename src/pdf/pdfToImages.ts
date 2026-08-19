@@ -1,10 +1,14 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { OperationResult, ProgressCallback, PdfToImageOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
 import { createZip } from './zip';
-import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfConfig';
+import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfjsConfig';
 
+/**
+ * Converts PDF pages into JPEG or PNG images using PDF.js rendering and memory-safe Blobs.
+ * Avoids large base64 conversions.
+ */
 export async function convertPdfToImages(
   file: File,
   options: PdfToImageOptions,
@@ -19,7 +23,7 @@ export async function convertPdfToImages(
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(5, 'Loading PDF for conversion...');
+  onProgress?.(5, 'Loading PDF for image conversion...');
   const fileBuffer = await file.arrayBuffer();
 
   const pdfjsDoc = await pdfjsLib.getDocument({
@@ -35,7 +39,7 @@ export async function convertPdfToImages(
   if (options.pagesMode === 'all') {
     targetPages = Array.from({ length: totalPages }, (_, i) => i + 1);
   } else {
-    const parseRes = parsePageRanges(options.customRanges || '1', totalPages);
+    const parseRes = parsePageRanges(options.customRanges || '1', totalPages, { deduplicate: true, sort: true });
     if (parseRes.error || parseRes.pages.length === 0) {
       throw new Error(parseRes.error || 'Please specify valid pages to convert.');
     }
@@ -56,45 +60,48 @@ export async function convertPdfToImages(
 
     const pageNum = targetPages[i];
     const percent = Math.round(10 + (i / totalTarget) * 80);
-    onProgress?.(percent, `Rendering page ${pageNum} (${i + 1}/${totalTarget}) at ${options.dpi} DPI...`);
+    onProgress?.(percent, `Rendering page ${pageNum} (${i + 1}/${totalTarget}) at ${options.dpi || 150} DPI...`);
 
     const pdfPage = await pdfjsDoc.getPage(pageNum);
     const viewport = pdfPage.getViewport({ scale });
 
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    const ctx = canvas.getContext('2d');
+    if (typeof document !== 'undefined' && document.createElement) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
 
-    if (options.format === 'jpg' && ctx) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (options.format === 'jpg' && ctx) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      await pdfPage.render({
+        canvasContext: ctx!,
+        viewport,
+        canvas,
+        intent: 'print',
+      }).promise;
+
+      // Memory-safe canvas.toBlob avoiding base64 string allocations
+      const imgBlob = await new Promise<Blob | null>(resolve => {
+        canvas.toBlob(resolve, mimeType, options.quality || 0.92);
+      });
+
+      if (!imgBlob) {
+        throw new Error(`Failed to render page ${pageNum} to image.`);
+      }
+
+      const imgBuffer = await imgBlob.arrayBuffer();
+      imageFiles.push({
+        name: `${baseName}-page-${pageNum}.${ext}`,
+        data: new Uint8Array(imgBuffer),
+      });
+
+      // Free canvas memory immediately
+      canvas.width = 0;
+      canvas.height = 0;
     }
-
-    await pdfPage.render({
-      canvasContext: ctx!,
-      viewport,
-      canvas,
-      intent: 'print',
-    }).promise;
-
-    const dataUrl = canvas.toDataURL(mimeType, options.quality || 0.92);
-    // Convert base64 dataUrl to Uint8Array
-    const base64Data = dataUrl.split(',')[1];
-    const binaryStr = atob(base64Data);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let b = 0; b < binaryStr.length; b++) {
-      bytes[b] = binaryStr.charCodeAt(b);
-    }
-
-    imageFiles.push({
-      name: `${baseName}-page-${pageNum}.${ext}`,
-      data: bytes,
-    });
-
-    // Free canvas memory
-    canvas.width = 0;
-    canvas.height = 0;
   }
 
   // If single page, return as direct image download

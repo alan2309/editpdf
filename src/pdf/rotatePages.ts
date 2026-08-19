@@ -1,8 +1,14 @@
-import { PDFDocument, degrees } from 'pdf-lib';
+import { QpdfEngine } from './qpdf/qpdfEngine';
 import type { OperationResult, ProgressCallback, RotateOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
+import { verifyPdf } from './verifyPdf';
 
+/**
+ * Rotates PDF pages at the PDF level using QPDF WebAssembly.
+ * Preserves all page boxes (MediaBox, CropBox, BleedBox, TrimBox, ArtBox),
+ * fonts, vector streams, and annotations without rasterizing or reconstructing pages.
+ */
 export async function rotatePages(
   file: File,
   options: RotateOptions,
@@ -17,16 +23,14 @@ export async function rotatePages(
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(10, 'Loading PDF document...');
+  onProgress?.(10, 'Reading PDF document for rotation...');
   const fileBuffer = await file.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(fileBuffer, { ignoreEncryption: true });
-  const totalPages = pdfDoc.getPageCount();
+  const rawBytes = new Uint8Array(fileBuffer);
+  const totalPages = await QpdfEngine.getPageCount(rawBytes);
 
-  let targetPages: number[] = [];
-  if (options.pagesMode === 'all') {
-    targetPages = Array.from({ length: totalPages }, (_, i) => i + 1);
-  } else {
-    const parseRes = parsePageRanges(options.customRanges || '1', totalPages);
+  let targetPages: number[] | undefined;
+  if (options.pagesMode === 'custom') {
+    const parseRes = parsePageRanges(options.customRanges || '1', totalPages, { deduplicate: true, sort: true });
     if (parseRes.error || parseRes.pages.length === 0) {
       throw new Error(parseRes.error || 'Please specify valid pages to rotate.');
     }
@@ -34,22 +38,29 @@ export async function rotatePages(
   }
 
   const rotationDelta = options.rotation; // 90, 180, or 270
+  onProgress?.(40, `Applying +${rotationDelta}° rotation with QPDF...`);
 
-  onProgress?.(40, `Rotating ${targetPages.length} page(s) by ${rotationDelta}°...`);
-
-  targetPages.forEach(p => {
-    const page = pdfDoc.getPage(p - 1);
-    const currentAngle = page.getRotation().angle;
-    const nextAngle = (currentAngle + rotationDelta) % 360;
-    page.setRotation(degrees(nextAngle));
+  const rotatedBytes = await QpdfEngine.rotatePages(rawBytes, {
+    angle: rotationDelta as 90 | 180 | 270,
+    pages: targetPages,
   });
 
-  onProgress?.(80, 'Saving rotated PDF...');
-  const outBytes = await pdfDoc.save();
+  if (signal?.aborted) {
+    throw new Error('Operation cancelled.');
+  }
+
+  onProgress?.(80, 'Verifying rotated PDF integrity...');
+  const verification = await verifyPdf(rotatedBytes, totalPages);
+
+  if (!verification.isValid) {
+    throw new Error(
+      `The PDF could not be safely processed: ${verification.errors.join(', ')}. Your original file has not been changed.`
+    );
+  }
 
   const baseName = getBaseFileName(file.name);
   const fileName = `${baseName}-rotated.pdf`;
-  const blob = new Blob([outBytes as BlobPart], { type: 'application/pdf' });
+  const blob = new Blob([rotatedBytes as BlobPart], { type: 'application/pdf' });
 
   onProgress?.(100, 'Rotation completed successfully!');
 

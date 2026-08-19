@@ -1,27 +1,16 @@
 import { PDFDocument, degrees } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
-import { createPdfToolkit, type PdfToolkit } from 'pdfstudio';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { QpdfEngine } from './qpdf/qpdfEngine';
 import type { OperationResult, ProgressCallback, CompressOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
-import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfConfig';
+import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfjsConfig';
 import { verifyPdf } from './verifyPdf';
-
-let toolkitPromise: Promise<PdfToolkit> | null = null;
-
-async function getPdfToolkit(): Promise<PdfToolkit> {
-  if (!toolkitPromise) {
-    toolkitPromise = createPdfToolkit(
-      typeof window !== 'undefined' ? { wasmUrl: '/qpdf.wasm' } : undefined
-    );
-  }
-  return toolkitPromise;
-}
 
 /**
  * Production PDF compression pipeline with three distinct modes:
- * - SAFE: Lossless structural & stream optimization (100% text/vector/font preservation).
- * - BALANCED: Structural stream rebuilding & object optimization with zero rasterization.
- * - MAXIMUM: Explicit sequential raster downsampling with exact dimension & rotation preservation.
+ * - SAFE: Lossless structural stream optimization with QPDF (100% text/vector/font preservation).
+ * - BALANCED: Structural & object stream optimization with QPDF (100% text/vector/font preservation).
+ * - MAXIMUM: Explicit raster downsampling with exact MediaBox/CropBox geometry and single rotation application.
  *
  * Enforces output size safeguard: if output >= original, retains original PDF with truthful 0% savings.
  */
@@ -39,14 +28,12 @@ export async function compressPdf(
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(5, 'Loading PDF document...');
+  onProgress?.(5, 'Reading PDF document for compression...');
   const fileBuffer = await file.arrayBuffer();
   const rawBytes = new Uint8Array(fileBuffer);
   const originalSize = file.size;
 
-  // Load document to get authoritative page count
-  const srcDoc = await PDFDocument.load(rawBytes, { ignoreEncryption: true });
-  const totalPages = srcDoc.getPageCount();
+  const totalPages = await QpdfEngine.getPageCount(rawBytes);
 
   if (signal?.aborted) {
     throw new Error('Operation cancelled.');
@@ -55,38 +42,34 @@ export async function compressPdf(
   let compressedBytes: Uint8Array;
 
   // ==========================================
-  // MODE 1: SAFE (Lossless Stream Optimization)
+  // MODE 1: SAFE (Lossless Stream Optimization via QPDF)
   // ==========================================
   if (options.mode === 'safe') {
-    onProgress?.(25, 'Applying lossless structural & stream compression...');
+    onProgress?.(25, 'Applying lossless structural stream compression with QPDF...');
     try {
-      const toolkit = await getPdfToolkit();
-      // Lossless compression with QPDF WebAssembly
-      compressedBytes = await toolkit.compress(rawBytes);
+      compressedBytes = await QpdfEngine.compressPdf(rawBytes, {
+        compressionLevel: 9,
+        objectStreams: true,
+      });
     } catch {
-      // Fallback to pdf-lib object stream optimization
+      // Fallback to pdf-lib object stream optimization if needed
+      const srcDoc = await PDFDocument.load(rawBytes, { ignoreEncryption: true });
       compressedBytes = await srcDoc.save({ useObjectStreams: true });
     }
   }
   // ==========================================
-  // MODE 2: BALANCED (Advanced Stream & Object Optimization)
+  // MODE 2: BALANCED (Structural & Object Stream Optimization via QPDF)
   // ==========================================
   else if (options.mode === 'balanced') {
-    onProgress?.(20, 'Analyzing PDF streams & removing unreferenced objects...');
-
-    // Reconstruct clean document to eliminate orphaned streams & unreferenced metadata
-    const cleanDoc = await PDFDocument.create();
-    const copiedPages = await cleanDoc.copyPages(srcDoc, srcDoc.getPageIndices());
-    copiedPages.forEach(p => cleanDoc.addPage(p));
-
-    onProgress?.(60, 'Re-encoding cross-reference tables & object streams...');
-    const reorderedBytes = await cleanDoc.save({ useObjectStreams: true });
-
+    onProgress?.(25, 'Applying structural and object stream optimization with QPDF...');
     try {
-      const toolkit = await getPdfToolkit();
-      compressedBytes = await toolkit.compress(reorderedBytes);
+      compressedBytes = await QpdfEngine.compressPdf(rawBytes, {
+        compressionLevel: 9,
+        objectStreams: true,
+      });
     } catch {
-      compressedBytes = reorderedBytes;
+      const srcDoc = await PDFDocument.load(rawBytes, { ignoreEncryption: true });
+      compressedBytes = await srcDoc.save({ useObjectStreams: true });
     }
   }
   // ==========================================
@@ -96,7 +79,7 @@ export async function compressPdf(
     onProgress?.(15, 'Preparing maximum compression (raster downsampling)...');
 
     const dpi = options.targetDpi || 100;
-    const scale = dpi / 72; // Strict DPI to scale calculation
+    const scale = dpi / 72;
     const quality = options.quality || 0.6;
 
     const pdfjsDoc = await pdfjsLib.getDocument({
@@ -116,30 +99,34 @@ export async function compressPdf(
       onProgress?.(percent, `Processing page ${p} of ${totalPages} at ${dpi} DPI...`);
 
       const pdfPage = await pdfjsDoc.getPage(p);
-      const viewport = pdfPage.getViewport({ scale });
-      const originalViewport = pdfPage.getViewport({ scale: 1.0 });
 
-      // In browser environment with DOM canvas
+      // 1. Get original unrotated logical dimensions
+      const originalUnrotatedViewport = pdfPage.getViewport({ scale: 1.0, rotation: 0 });
+      const logicalWidth = originalUnrotatedViewport.width;
+      const logicalHeight = originalUnrotatedViewport.height;
+
+      // 2. Render viewport at scale with rotation 0 so raster image is unrotated
+      const renderViewport = pdfPage.getViewport({ scale, rotation: 0 });
+
       if (typeof document !== 'undefined' && document.createElement) {
         const canvas = document.createElement('canvas');
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
+        canvas.width = Math.floor(renderViewport.width);
+        canvas.height = Math.floor(renderViewport.height);
         const ctx = canvas.getContext('2d', { alpha: false });
 
         if (ctx) {
-          // Explicit white background to prevent transparency black-box corruption
+          // Explicit white background to prevent transparency black box artifacts
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
         await pdfPage.render({
           canvasContext: ctx!,
-          viewport,
+          viewport: renderViewport,
           canvas,
           intent: 'print',
         }).promise;
 
-        // Memory-safe canvas.toBlob avoiding giant base64 strings
         const imgBlob = await new Promise<Blob | null>(resolve => {
           canvas.toBlob(resolve, 'image/jpeg', quality);
         });
@@ -151,25 +138,28 @@ export async function compressPdf(
         const imgBuffer = await imgBlob.arrayBuffer();
         const embeddedImg = await outDoc.embedJpg(imgBuffer);
 
-        // Canvas memory cleanup immediately
+        // Immediate canvas memory cleanup
         canvas.width = 0;
         canvas.height = 0;
 
-        // Preserve exact original unscaled page dimensions
-        const newPage = outDoc.addPage([originalViewport.width, originalViewport.height]);
+        // 3. Create output page with original logical dimensions
+        const newPage = outDoc.addPage([logicalWidth, logicalHeight]);
+
+        // 4. Draw image onto page using unrotated logical bounds
         newPage.drawImage(embeddedImg, {
           x: 0,
           y: 0,
-          width: originalViewport.width,
-          height: originalViewport.height,
+          width: logicalWidth,
+          height: logicalHeight,
         });
 
-        // Preserve original page rotation
+        // 5. Apply original page rotation exactly once
         if (pdfPage.rotate) {
           newPage.setRotation(degrees(pdfPage.rotate));
         }
       } else {
-        // Non-DOM environment fallback (e.g. Node tests)
+        // Fallback for non-DOM test environments
+        const srcDoc = await PDFDocument.load(rawBytes, { ignoreEncryption: true });
         const copied = await outDoc.copyPages(srcDoc, [p - 1]);
         outDoc.addPage(copied[0]);
       }
@@ -187,9 +177,8 @@ export async function compressPdf(
   const verification = await verifyPdf(compressedBytes, totalPages);
   let finalBytes = compressedBytes;
 
-  // If verification failed, fallback safely to original
   if (!verification.isValid) {
-    finalBytes = rawBytes;
+    finalBytes = rawBytes; // Safely retain original if invalid
   }
 
   const isSmaller = finalBytes.length < originalSize;

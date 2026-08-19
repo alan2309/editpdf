@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import type {
   PDFTextItem, TextFormat, PDFEditorState, RedactionBox, EditorTool,

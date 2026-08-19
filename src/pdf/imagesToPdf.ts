@@ -1,6 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import type { OperationResult, ProgressCallback, ImageToPdfOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
+import { verifyPdf } from './verifyPdf';
 
 // Standard Page Dimensions in Points (72 points = 1 inch)
 const PAGE_SIZES = {
@@ -8,6 +9,11 @@ const PAGE_SIZES = {
   letter: { width: 612.0, height: 792.0 },
 };
 
+/**
+ * Converts image files (JPG/PNG) into a PDF document using pdf-lib.
+ * Handles aspect ratio preserving scaling (contain/cover/original) and
+ * clean backgrounds for transparency.
+ */
 export async function convertImagesToPdf(
   files: File[],
   options: ImageToPdfOptions,
@@ -36,7 +42,7 @@ export async function convertImagesToPdf(
     const file = files[i];
     totalOriginalSize += file.size;
 
-    const percent = Math.round(10 + (i / totalImages) * 80);
+    const percent = Math.round(10 + (i / totalImages) * 75);
     onProgress?.(percent, `Embedding image ${i + 1} of ${totalImages}: ${file.name}`);
 
     const buffer = await file.arrayBuffer();
@@ -99,8 +105,15 @@ export async function convertImagesToPdf(
     });
   }
 
-  onProgress?.(92, 'Saving generated PDF...');
-  const outBytes = await pdfDoc.save();
+  onProgress?.(88, 'Saving generated PDF...');
+  const outBytes = await pdfDoc.save({ useObjectStreams: true });
+
+  onProgress?.(95, 'Verifying PDF integrity...');
+  const verification = await verifyPdf(outBytes, totalImages);
+
+  if (!verification.isValid) {
+    throw new Error(`The PDF could not be safely created: ${verification.errors.join(', ')}.`);
+  }
 
   const baseName = getBaseFileName(files[0].name);
   const fileName = totalImages > 1 ? `${baseName}-images.pdf` : `${baseName}.pdf`;

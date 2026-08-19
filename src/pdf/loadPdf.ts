@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFJS_WORKER_URL } from './pdfConfig';
 
 // Ensure PDF.js worker is properly configured

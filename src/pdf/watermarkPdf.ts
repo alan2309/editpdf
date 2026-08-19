@@ -2,6 +2,7 @@ import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import type { OperationResult, ProgressCallback, WatermarkOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
+import { verifyPdf } from './verifyPdf';
 
 function parseHexColor(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '');
@@ -15,6 +16,10 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } {
   return { r: 0.8, g: 0.1, b: 0.1 };
 }
 
+/**
+ * Draws watermark text overlays onto existing PDF pages using pdf-lib.
+ * Preserves exact page dimensions, rotations, vectors, fonts, and images.
+ */
 export async function addWatermarkToPdf(
   file: File,
   options: WatermarkOptions,
@@ -42,7 +47,7 @@ export async function addWatermarkToPdf(
   if (options.pagesMode === 'all') {
     targetPages = Array.from({ length: totalPages }, (_, i) => i + 1);
   } else {
-    const parseRes = parsePageRanges(options.customRanges || '1', totalPages);
+    const parseRes = parsePageRanges(options.customRanges || '1', totalPages, { deduplicate: true, sort: true });
     if (parseRes.error || parseRes.pages.length === 0) {
       throw new Error(parseRes.error || 'Please specify valid pages for watermark.');
     }
@@ -115,7 +120,14 @@ export async function addWatermarkToPdf(
   }
 
   onProgress?.(85, 'Saving watermarked document...');
-  const outBytes = await pdfDoc.save();
+  const outBytes = await pdfDoc.save({ useObjectStreams: true });
+
+  onProgress?.(95, 'Verifying document integrity...');
+  const verification = await verifyPdf(outBytes, totalPages);
+
+  if (!verification.isValid) {
+    throw new Error(`The PDF could not be safely processed: ${verification.errors.join(', ')}.`);
+  }
 
   const baseName = getBaseFileName(file.name);
   const fileName = `${baseName}-watermarked.pdf`;

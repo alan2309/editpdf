@@ -1,22 +1,12 @@
-import { createPdfToolkit, type PdfToolkit } from 'pdfstudio';
+import { QpdfEngine } from './qpdf/qpdfEngine';
 import type { OperationResult, ProgressCallback, ProtectOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
-
-let toolkitPromise: Promise<PdfToolkit> | null = null;
-
-async function getPdfToolkit(): Promise<PdfToolkit> {
-  if (!toolkitPromise) {
-    toolkitPromise = createPdfToolkit(
-      typeof window !== 'undefined' ? { wasmUrl: '/qpdf.wasm' } : undefined
-    );
-  }
-  return toolkitPromise;
-}
+import { verifyPdf } from './verifyPdf';
 
 /**
- * Protects a PDF with standard AES-256 PDF encryption and granular security permissions
- * powered by QPDF compiled to WebAssembly.
- * Runs 100% locally in the browser with zero server uploads.
+ * Protects a PDF document with standard AES-256 encryption and granular security permissions
+ * powered by QPDF WebAssembly.
+ * Runs 100% locally in the browser with zero server uploads or external APIs.
  */
 export async function protectPdf(
   file: File,
@@ -36,26 +26,22 @@ export async function protectPdf(
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(15, 'Initializing local WebAssembly encryption engine...');
-  const toolkit = await getPdfToolkit();
+  onProgress?.(15, 'Reading PDF document for encryption...');
+  const fileBuffer = await file.arrayBuffer();
+  const rawBytes = new Uint8Array(fileBuffer);
+  const totalPages = await QpdfEngine.getPageCount(rawBytes);
 
   if (signal?.aborted) {
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(35, 'Reading PDF document...');
-  const fileBuffer = await file.arrayBuffer();
-  const inputBytes = new Uint8Array(fileBuffer);
-
-  const totalPages = await toolkit.pageCount(inputBytes);
-
-  onProgress?.(60, 'Applying AES-256 standard encryption & security restrictions...');
+  onProgress?.(45, 'Applying standard AES-256 encryption & permission restrictions...');
 
   const printPerm = options.permissions?.printing ? 'full' : 'none';
   const modifyPerm = options.permissions?.modifying ? 'all' : 'none';
   const extractPerm = options.permissions?.copying !== false;
 
-  const lockedBytes = await toolkit.lock(inputBytes, {
+  const lockedBytes = await QpdfEngine.protectPdf(rawBytes, {
     userPassword: options.password,
     ownerPassword: options.password,
     keyLength: 256,
@@ -70,7 +56,15 @@ export async function protectPdf(
     throw new Error('Operation cancelled.');
   }
 
-  onProgress?.(95, 'Finalizing password protected PDF...');
+  onProgress?.(85, 'Verifying encrypted PDF output...');
+  const verification = await verifyPdf(lockedBytes, totalPages);
+
+  if (!verification.isValid) {
+    throw new Error(
+      `The PDF could not be safely processed: ${verification.errors.join(', ')}. Your original file has not been changed.`
+    );
+  }
+
   const baseName = getBaseFileName(file.name);
   const fileName = `${baseName}-protected.pdf`;
   const blob = new Blob([lockedBytes as BlobPart], { type: 'application/pdf' });

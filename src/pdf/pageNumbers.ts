@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import type { OperationResult, ProgressCallback, PageNumberOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
+import { verifyPdf } from './verifyPdf';
 
 function parseHexColor(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '');
@@ -15,6 +16,10 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } {
   return { r: 0.2, g: 0.2, b: 0.2 };
 }
 
+/**
+ * Draws page numbers onto existing PDF pages using pdf-lib.
+ * Preserves exact page dimensions, rotations, vectors, fonts, and images.
+ */
 export async function addPageNumbersToPdf(
   file: File,
   options: PageNumberOptions,
@@ -38,7 +43,7 @@ export async function addPageNumbersToPdf(
   if (options.pagesMode === 'all') {
     targetPages = Array.from({ length: totalPages }, (_, i) => i + 1);
   } else {
-    const parseRes = parsePageRanges(options.customRanges || '1', totalPages);
+    const parseRes = parsePageRanges(options.customRanges || '1', totalPages, { deduplicate: true, sort: true });
     if (parseRes.error || parseRes.pages.length === 0) {
       throw new Error(parseRes.error || 'Please specify valid pages for page numbering.');
     }
@@ -116,7 +121,14 @@ export async function addPageNumbersToPdf(
   }
 
   onProgress?.(85, 'Saving document...');
-  const outBytes = await pdfDoc.save();
+  const outBytes = await pdfDoc.save({ useObjectStreams: true });
+
+  onProgress?.(95, 'Verifying document integrity...');
+  const verification = await verifyPdf(outBytes, totalPages);
+
+  if (!verification.isValid) {
+    throw new Error(`The PDF could not be safely processed: ${verification.errors.join(', ')}.`);
+  }
 
   const baseName = getBaseFileName(file.name);
   const fileName = `${baseName}-numbered.pdf`;
