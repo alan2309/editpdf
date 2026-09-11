@@ -8,6 +8,7 @@ import type {
 } from '../types/pdf';
 import { DEFAULT_FORMAT } from '../types/pdf';
 import { calculateSubstringBox } from '../utils/textMetrics';
+import { addUriLinkAnnotation, normalizeExternalLink } from '../pdf/links';
 
 import { PDFJS_WORKER_URL, PDFJS_DOCUMENT_OPTIONS, PDF_MAX_FILE_SIZE } from '../pdf/pdfConfig';
 
@@ -1266,14 +1267,16 @@ export function usePDFEditor() {
         await page.render({ canvasContext: offCtx, viewport: hiResViewport, canvas: offCanvas }).promise;
 
         const ratio = exportScale / state.scale;
+        const linksToAdd: { destination: string; x: number; y: number; width: number; height: number }[] = [];
 
         // 1. Draw Deleted / Modified Text Whiteouts
         const pageItems = state.pageItems[p] || (p === state.currentPage ? state.textItems : []);
         for (const item of pageItems) {
           const hasTextChange = item.editedText !== item.originalText;
+          const destination = normalizeExternalLink(item.format.link);
           const hasFmtChange = item.format.bold || item.format.italic || item.format.underline ||
                                item.format.fontFamily !== 'helvetica' || item.format.fontSizeDelta !== 0 ||
-                               item.format.color !== '#000000' || item.format.link !== '';
+                               item.format.color !== '#000000' || !!destination;
           const hasPosChange = Math.abs(item.x - item.originalX) > 0.5 || Math.abs(item.y - item.originalY) > 0.5;
           const isDeleted = !!item.isDeleted;
           const isAdded = !!item.isAdded;
@@ -1300,6 +1303,19 @@ export function usePDFEditor() {
             offCtx.fillStyle = item.format.color;
             offCtx.textBaseline = 'top';
             offCtx.fillText(item.editedText, item.x * ratio, item.y * ratio);
+
+            if (destination) {
+              const textWidth = offCtx.measureText(item.editedText).width;
+              const linkWidth = Math.max(item.width * ratio, textWidth);
+              const linkHeight = Math.max(item.height * ratio, itemFontSize * 1.2);
+              linksToAdd.push({
+                destination,
+                x: (item.x * ratio) / exportScale,
+                y: origViewport.height - ((item.y * ratio + linkHeight) / exportScale),
+                width: linkWidth / exportScale,
+                height: linkHeight / exportScale,
+              });
+            }
 
             if (item.format.underline) {
               const textWidth = offCtx.measureText(item.editedText).width;
@@ -1373,6 +1389,9 @@ export function usePDFEditor() {
           width: origViewport.width,
           height: origViewport.height,
         });
+        for (const link of linksToAdd) {
+          addUriLinkAnnotation(cleanDoc, newPage, link.destination, link);
+        }
       }
 
       if (state.sanitizeMetadata) {
@@ -1431,9 +1450,10 @@ export function usePDFEditor() {
         const pageItems = state.pageItems[p] || (p === state.currentPage ? state.textItems : []);
         for (const item of pageItems) {
           const hasTextChange = item.editedText !== item.originalText;
+          const destination = normalizeExternalLink(item.format.link);
           const hasFmtChange = item.format.bold || item.format.italic || item.format.underline ||
                                item.format.fontFamily !== 'helvetica' || item.format.fontSizeDelta !== 0 ||
-                               item.format.color !== '#000000' || item.format.link !== '';
+                               item.format.color !== '#000000' || !!destination;
           const hasPosChange = Math.abs(item.x - item.originalX) > 0.1 || Math.abs(item.y - item.originalY) > 0.1;
           const isDeleted = !!item.isDeleted;
           const isAdded = !!item.isAdded;
@@ -1473,6 +1493,16 @@ export function usePDFEditor() {
             font,
             color: rgb(r, g, b),
           });
+
+          if (destination) {
+            const textWidth = Math.max(font.widthOfTextAtSize(textToDraw, pdfFontSize), item.width * pdfScale);
+            addUriLinkAnnotation(pdfLibDoc, page, destination, {
+              x: pdfX_new,
+              y: pdfY_new - pdfFontSize * 0.3,
+              width: textWidth,
+              height: Math.max(item.height * pdfScale, pdfFontSize * 1.3),
+            });
+          }
 
           if (fmt.underline) {
             const textWidth = font.widthOfTextAtSize(textToDraw, pdfFontSize);
