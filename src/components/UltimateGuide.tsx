@@ -73,6 +73,13 @@ export default function UltimateGuide() {
 
   const spokePages = [
     {
+      title: 'Edit PDF Online',
+      path: '/edit-pdf',
+      badge: 'Full Text & Sign Editor',
+      desc: 'Open the PDF Editor to modify text, sign documents, format fonts, insert stamps, and export interactive links directly in your browser.',
+      icon: <Sparkles size={20} color="#8b5cf6" />,
+    },
+    {
       title: 'Secure PDF Editor',
       path: '/secure-pdf-editor',
       badge: 'Legal & Medical Grade',

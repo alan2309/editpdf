@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import PDFEditor from './components/PDFEditor';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
+import EditPdfPage from './pages/EditPdfPage';
 import SecurePdfEditorPage from './pages/SecurePdfEditorPage';
 import BankStatementPdfEditorPage from './pages/BankStatementPdfEditorPage';
 import RedactPdfInBrowserPage from './pages/RedactPdfInBrowserPage';
@@ -101,6 +102,8 @@ function MainApp() {
         return <ProtectPdfPage />;
 
       // Use Case Landing Pages
+      case '/edit-pdf':
+        return <EditPdfPage onFileSelected={handleFileSelected} />;
       case '/secure-pdf-editor':
         return <SecurePdfEditorPage onFileSelected={handleFileSelected} />;
       case '/edit-bank-statement-pdf':

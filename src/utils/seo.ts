@@ -15,28 +15,66 @@ export interface PageSEO {
 
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
-    title: '100% Private PDF Editor & Toolbox | Edit, Merge, Split, Compress & Convert PDF (No Upload)',
-    description: 'Free, private online PDF editor and complete PDF toolbox. Merge, split, compress, convert, watermark, and edit text 100% client-side. Zero file upload.',
-    keywords: '100% private pdf editor, edit pdf online free no upload, merge pdf online free, split pdf, compress pdf, convert pdf to jpg, pdf toolbox, pdf to png, jpg to pdf, watermark pdf, flatten pdf, chrome pdf editor',
+    title: 'Free PDF Editor Online | Edit, Merge, Split & Convert PDF',
+    description: 'Free online PDF editor and toolbox for editing text, signing, merging, splitting, compressing and converting PDFs. No signup and no cloud upload.',
+    keywords: 'free pdf editor, pdf editor online, pdf tools, edit pdf online, merge pdf, split pdf, compress pdf, convert pdf, client side pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: '100% Private PDF Editor & Toolbox | Edit, Merge, Split & Convert Online Free',
-    ogDescription: 'Complete client-side PDF toolbox. 100% in-browser processing, no uploads required. Merge, split, compress, convert, edit text, sign contracts, and sanitize data instantly.',
-    h1: '100% Private PDF Editor & Toolbox',
-    h1Highlight: 'Edit, Merge & Convert in Browser',
-    h1Subtitle: '(Zero Server Upload · 100% Confidential)',
-    badge: '100% Private · Editor · Merge · Split · Compress · Convert · Zero Server Upload',
+    ogTitle: 'Free PDF Editor Online | Edit, Merge, Split & Convert PDF',
+    ogDescription: 'Complete client-side PDF editor and toolbox. Edit text, sign, merge, split, compress, and convert PDFs directly in your browser with zero upload.',
+    h1: 'Free PDF Editor Online',
+    h1Highlight: 'Edit, Merge & Convert PDFs',
+    h1Subtitle: 'Free PDF Tools with Local Browser Processing',
+    badge: 'Free PDF Editor · Edit · Merge · Split · Compress · Convert · No Upload',
     faqs: [
       {
         q: 'Does my PDF get uploaded to any server?',
-        a: 'No. Unlike other tools, EditPDF processes your files entirely in your web browser. Your files never leave your device and are never uploaded to any cloud server.'
+        a: 'No. EditPDF processes your files entirely in your web browser. Your files never leave your device and are never uploaded to any cloud server.'
       },
       {
         q: 'What PDF tools are available in the toolbox?',
-        a: 'You can edit text, find & replace, digitally sign, stamp, merge multiple PDFs, split documents, extract pages, delete pages, reorder pages, rotate pages, compress PDFs, convert PDF to JPG/PNG, convert images to PDF, watermark documents, add page numbers, flatten forms, and protect documents.'
+        a: 'You can edit text, add links, digitally sign, stamp, merge multiple PDFs, split documents, extract pages, delete pages, reorder pages, rotate pages, compress PDFs, convert PDF to JPG/PNG, convert images to PDF, watermark documents, add page numbers, flatten forms, and protect documents.'
       },
       {
         q: 'Is this PDF toolbox really free?',
-        a: 'Yes, all 15+ PDF tools are 100% free to use with no hidden fees, no watermarks, no signup required, and no limits.'
+        a: 'Yes, all PDF tools are 100% free to use with no hidden fees, no watermarks, no signup required, and no usage limits.'
+      }
+    ]
+  },
+  '/edit-pdf': {
+    title: 'Free PDF Editor Online | Edit PDF Text, Sign & More',
+    description: 'Edit PDF text, add text, sign documents, annotate and modify PDFs online for free. No signup or upload required. Your files stay on your device.',
+    keywords: 'edit pdf online, edit pdf, edit pdf online free, free pdf editor, free pdf editor online, edit pdf text, edit pdf text online, online pdf editor, pdf editor free',
+    canonical: 'https://editpdf.adwyzors.com/edit-pdf',
+    ogTitle: 'Free PDF Editor Online | Edit PDF Text & Sign',
+    ogDescription: 'Edit PDF documents directly in your browser. Add or modify text, sign, annotate and work with PDFs without uploading your files.',
+    h1: 'Free PDF Editor Online',
+    h1Highlight: 'Edit PDF Text & Documents',
+    h1Subtitle: 'No Signup. No Upload. Your PDF Stays on Your Device.',
+    badge: 'Free PDF Editor · 100% Local Processing · No Upload',
+    faqs: [
+      {
+        q: 'Can I edit a PDF online for free?',
+        a: 'Yes! EditPDF lets you open, edit, annotate, sign, and modify PDF documents directly in your web browser 100% free with no account or subscription required.'
+      },
+      {
+        q: 'Can I edit text inside a PDF?',
+        a: 'Yes. You can edit existing text strings, change font family (Helvetica, Times, Courier), adjust font size, colors, bold/italic styles, or insert new text boxes anywhere on the page.'
+      },
+      {
+        q: 'Does my PDF get uploaded to a server?',
+        a: 'No. Your PDF is processed locally inside your browser using HTML5 Canvas and WebAssembly. Document bytes are never transmitted to any server.'
+      },
+      {
+        q: 'Can I sign a PDF online?',
+        a: 'Yes. You can draw your digital signature, type a signature with handwriting styles, or upload a signature image to sign forms and contracts.'
+      },
+      {
+        q: 'Can I edit a PDF without installing software?',
+        a: 'Yes. EditPDF runs natively in modern web browsers (Chrome, Edge, Firefox, Safari) without requiring software downloads or browser extensions.'
+      },
+      {
+        q: 'What types of PDF files can I edit?',
+        a: 'You can edit text-based PDF documents up to 100MB. For scanned PDF documents, you can add new text, signatures, stamps, watermarks, and redaction boxes.'
       }
     ]
   },

@@ -3,6 +3,7 @@ import { FileText, Menu, X, Shield } from 'lucide-react';
 import { CustomLink, useRouter } from '../context/RouterContext';
 
 const toolLinks = [
+  { href: '/edit-pdf', label: 'Edit PDF' },
   { href: '/merge-pdf', label: 'Merge PDF' },
   { href: '/split-pdf', label: 'Split PDF' },
   { href: '/extract-pdf-pages', label: 'Extract Pages' },
@@ -73,19 +74,19 @@ export default function Navbar() {
           {/* Desktop Nav links */}
           <div className="nav-desktop-links" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <CustomLink
-              href="/"
+              href="/edit-pdf"
               style={{
-                color: currentPath === '/' ? '#f0f0f0' : 'rgba(240,240,240,0.65)',
+                color: currentPath === '/edit-pdf' ? '#f0f0f0' : 'rgba(240,240,240,0.65)',
                 textDecoration: 'none',
                 fontSize: '0.875rem',
                 fontWeight: 600,
                 padding: '0.45rem 0.85rem',
                 borderRadius: '0.5rem',
-                background: currentPath === '/' ? 'rgba(255,255,255,0.08)' : 'transparent',
+                background: currentPath === '/edit-pdf' ? 'rgba(255,255,255,0.08)' : 'transparent',
                 transition: 'color 0.15s, background 0.15s',
               }}
             >
-              PDF Editor
+              Edit PDF
             </CustomLink>
 
             <div style={{ position: 'relative' }}>
@@ -224,7 +225,7 @@ export default function Navbar() {
       >
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <CustomLink
-            href="/"
+            href="/edit-pdf"
             onClick={() => setMobileMenuOpen(false)}
             style={{
               display: 'block',
@@ -232,12 +233,12 @@ export default function Navbar() {
               borderRadius: '0.75rem',
               fontSize: '1rem',
               fontWeight: 600,
-              color: currentPath === '/' ? '#f0f0f0' : 'rgba(240,240,240,0.7)',
-              background: currentPath === '/' ? 'rgba(77,107,250,0.12)' : 'transparent',
+              color: currentPath === '/edit-pdf' ? '#f0f0f0' : 'rgba(240,240,240,0.7)',
+              background: currentPath === '/edit-pdf' ? 'rgba(77,107,250,0.12)' : 'transparent',
               textDecoration: 'none',
             }}
           >
-            📄 PDF Editor
+            📄 Edit PDF
           </CustomLink>
 
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>

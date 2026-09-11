@@ -4,7 +4,10 @@ import { RouterProvider } from './context/RouterContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
+import EditPdfPage from './pages/EditPdfPage';
 import SecurePdfEditorPage from './pages/SecurePdfEditorPage';
+
+export { SEO_DATA } from './utils/seo';
 import BankStatementPdfEditorPage from './pages/BankStatementPdfEditorPage';
 import RedactPdfInBrowserPage from './pages/RedactPdfInBrowserPage';
 import ChromePdfEditorPage from './pages/ChromePdfEditorPage';
@@ -66,6 +69,8 @@ function renderRouteComponent(path: string) {
     case '/protect-pdf':
       return <ProtectPdfPage />;
 
+    case '/edit-pdf':
+      return <EditPdfPage onFileSelected={dummyHandler} />;
     case '/secure-pdf-editor':
       return <SecurePdfEditorPage onFileSelected={dummyHandler} />;
     case '/edit-bank-statement-pdf':
