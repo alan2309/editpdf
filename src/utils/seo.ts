@@ -16,15 +16,15 @@ export interface PageSEO {
 export const SEO_DATA: Record<string, PageSEO> = {
   '/': {
     title: 'Free PDF Editor Online | Edit, Merge, Split & Convert PDF',
-    description: 'Free online PDF editor and toolbox for editing text, signing, merging, splitting, compressing and converting PDFs. No signup and no cloud upload.',
-    keywords: 'free pdf editor, pdf editor online, pdf tools, edit pdf online, merge pdf, split pdf, compress pdf, convert pdf, client side pdf editor',
+    description: 'Free online PDF editor and toolbox for editing, signing, merging, splitting, compressing and converting PDFs. Client-side browser processing with zero upload.',
+    keywords: 'free pdf editor, pdf editor online, pdf tools, online pdf editor, pdf editor free, client side pdf tools, browser pdf editor',
     canonical: 'https://editpdf.adwyzors.com/',
-    ogTitle: 'Free PDF Editor Online | Edit, Merge, Split & Convert PDF',
+    ogTitle: 'Free PDF Editor Online | Complete Browser PDF Toolbox',
     ogDescription: 'Complete client-side PDF editor and toolbox. Edit text, sign, merge, split, compress, and convert PDFs directly in your browser with zero upload.',
     h1: 'Free PDF Editor Online',
-    h1Highlight: 'Edit, Merge & Convert PDFs',
-    h1Subtitle: 'Free PDF Tools with Local Browser Processing',
-    badge: 'Free PDF Editor · Edit · Merge · Split · Compress · Convert · No Upload',
+    h1Highlight: 'PDF Tools & Editor',
+    h1Subtitle: 'Edit, Merge, Split, Compress & Convert PDFs in Your Browser',
+    badge: 'Free PDF Editor · Complete Browser PDF Toolbox · No Upload',
     faqs: [
       {
         q: 'Does my PDF get uploaded to any server?',
@@ -41,16 +41,16 @@ export const SEO_DATA: Record<string, PageSEO> = {
     ]
   },
   '/edit-pdf': {
-    title: 'Free PDF Editor Online | Edit PDF Text, Sign & More',
-    description: 'Edit PDF text, add text, sign documents, annotate and modify PDFs online for free. No signup or upload required. Your files stay on your device.',
-    keywords: 'edit pdf online, edit pdf, edit pdf online free, free pdf editor, free pdf editor online, edit pdf text, edit pdf text online, online pdf editor, pdf editor free',
+    title: 'Edit PDF Online Free | Edit PDF Text, Sign & Annotate',
+    description: 'Edit PDF text, add text, sign documents, annotate and modify PDFs online for free. No signup required. Processed locally on your device.',
+    keywords: 'edit pdf, edit pdf online, edit pdf text, edit pdf online free, edit pdf text online, modify pdf online, sign pdf online, edit pdf document',
     canonical: 'https://editpdf.adwyzors.com/edit-pdf',
-    ogTitle: 'Free PDF Editor Online | Edit PDF Text & Sign',
+    ogTitle: 'Edit PDF Online Free | Edit PDF Text & Sign Documents',
     ogDescription: 'Edit PDF documents directly in your browser. Add or modify text, sign, annotate and work with PDFs without uploading your files.',
-    h1: 'Free PDF Editor Online',
-    h1Highlight: 'Edit PDF Text & Documents',
-    h1Subtitle: 'No Signup. No Upload. Your PDF Stays on Your Device.',
-    badge: 'Free PDF Editor · 100% Local Processing · No Upload',
+    h1: 'Edit PDF Online',
+    h1Highlight: 'Modify PDF Text & Documents',
+    h1Subtitle: 'Edit PDF Text, Sign Forms & Annotate Online Free',
+    badge: 'Edit PDF Online · Local Browser Processing · No Upload',
     faqs: [
       {
         q: 'Can I edit a PDF online for free?',

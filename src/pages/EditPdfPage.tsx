@@ -111,7 +111,7 @@ export default function EditPdfPage({ onFileSelected }: EditPdfPageProps) {
               </div>
               <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.6rem', color: '#f0f0f0' }}>Redact Sensitive Data</h3>
               <p style={{ fontSize: '0.9rem', color: 'rgba(240,240,240,0.65)', lineHeight: 1.65, margin: 0 }}>
-                Blackout sensitive PII, account numbers, and private text. Performs genuine binary text purging so redacted text cannot be highlighted or extracted.
+                Blackout sensitive PII, account numbers, and private text. Purges underlying redacted text elements from the exported PDF document streams so text cannot be highlighted or copied.
               </p>
             </div>
 
