@@ -2,13 +2,33 @@ import { useState, useEffect } from 'react';
 import { FileText, Menu, X, Shield } from 'lucide-react';
 import { CustomLink, useRouter } from '../context/RouterContext';
 
+const toolLinks = [
+  { href: '/merge-pdf', label: 'Merge PDF' },
+  { href: '/split-pdf', label: 'Split PDF' },
+  { href: '/extract-pdf-pages', label: 'Extract Pages' },
+  { href: '/delete-pdf-pages', label: 'Delete Pages' },
+  { href: '/reorder-pdf-pages', label: 'Reorder Pages' },
+  { href: '/rotate-pdf', label: 'Rotate PDF' },
+  { href: '/compress-pdf', label: 'Compress PDF' },
+  { href: '/pdf-to-jpg', label: 'PDF to JPG' },
+  { href: '/pdf-to-png', label: 'PDF to PNG' },
+  { href: '/jpg-to-pdf', label: 'JPG to PDF' },
+  { href: '/png-to-pdf', label: 'PNG to PDF' },
+  { href: '/watermark-pdf', label: 'Watermark PDF' },
+  { href: '/pdf-page-numbers', label: 'Page Numbers' },
+  { href: '/flatten-pdf', label: 'Flatten PDF' },
+  { href: '/protect-pdf', label: 'Protect PDF' },
+];
+
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const { currentPath } = useRouter();
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
+    setToolMenuOpen(false);
   }, [currentPath]);
 
   // Lock body scroll when mobile menu is open
@@ -67,6 +87,70 @@ export default function Navbar() {
             >
               PDF Editor
             </CustomLink>
+
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                aria-expanded={toolMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setToolMenuOpen(open => !open)}
+                style={{
+                  color: toolLinks.some(tool => tool.href === currentPath) ? '#f0f0f0' : 'rgba(240,240,240,0.65)',
+                  background: toolMenuOpen ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  border: 'none',
+                  borderRadius: '0.5rem',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  padding: '0.45rem 0.85rem',
+                }}
+              >
+                All Tools
+              </button>
+
+              {toolMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="PDF tools"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 0.65rem)',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: 420,
+                    maxWidth: 'calc(100vw - 2rem)',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: '0.35rem',
+                    padding: '0.65rem',
+                    background: '#15151f',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '0.75rem',
+                    boxShadow: '0 18px 45px rgba(0,0,0,0.45)',
+                  }}
+                >
+                  {toolLinks.map(tool => (
+                    <CustomLink
+                      key={tool.href}
+                      href={tool.href}
+                      role="menuitem"
+                      onClick={() => setToolMenuOpen(false)}
+                      style={{
+                        color: currentPath === tool.href ? '#ffffff' : 'rgba(240,240,240,0.72)',
+                        background: currentPath === tool.href ? 'rgba(77,107,250,0.18)' : 'transparent',
+                        borderRadius: '0.45rem',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        padding: '0.6rem 0.7rem',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {tool.label}
+                    </CustomLink>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <a
               href="/#faq"
@@ -155,6 +239,31 @@ export default function Navbar() {
           >
             📄 PDF Editor
           </CustomLink>
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
+            <div style={{ color: 'rgba(240,240,240,0.5)', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.08em', padding: '0.45rem 1rem', textTransform: 'uppercase' }}>
+              PDF Tools
+            </div>
+            {toolLinks.map(tool => (
+              <CustomLink
+                key={tool.href}
+                href={tool.href}
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  display: 'block',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  color: currentPath === tool.href ? '#f0f0f0' : 'rgba(240,240,240,0.7)',
+                  background: currentPath === tool.href ? 'rgba(77,107,250,0.12)' : 'transparent',
+                  textDecoration: 'none',
+                }}
+              >
+                {tool.label}
+              </CustomLink>
+            ))}
+          </div>
 
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
             <a

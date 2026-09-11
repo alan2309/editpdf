@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfjsConfig';
+import { PDFJS_DOCUMENT_OPTIONS } from './pdfjsConfig';
 
 export interface VerifyPdfOptions {
   expectedPageCount?: number;
@@ -97,8 +97,7 @@ export async function verifyPdf(
     try {
       const pdfjsDoc = await pdfjsLib.getDocument({
         data: bytes.slice(),
-        cMapUrl: PDFJS_CMAP_URL,
-        cMapPacked: PDFJS_CMAP_PACKED,
+        ...PDFJS_DOCUMENT_OPTIONS,
       }).promise;
 
       if (pdfjsDoc.numPages !== pageCount) {

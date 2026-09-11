@@ -3,7 +3,7 @@ import type { OperationResult, ProgressCallback, PdfToImageOptions } from './typ
 import { getBaseFileName } from './downloadUtils';
 import { parsePageRanges } from './pageRangeParser';
 import { createZip } from './zip';
-import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfjsConfig';
+import { PDFJS_DOCUMENT_OPTIONS } from './pdfjsConfig';
 
 /**
  * Converts PDF pages into JPEG or PNG images using PDF.js rendering and memory-safe Blobs.
@@ -28,8 +28,7 @@ export async function convertPdfToImages(
 
   const pdfjsDoc = await pdfjsLib.getDocument({
     data: new Uint8Array(fileBuffer),
-    cMapUrl: PDFJS_CMAP_URL,
-    cMapPacked: PDFJS_CMAP_PACKED,
+    ...PDFJS_DOCUMENT_OPTIONS,
   }).promise;
 
   const totalPages = pdfjsDoc.numPages;

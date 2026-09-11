@@ -9,7 +9,7 @@ import type {
 import { DEFAULT_FORMAT } from '../types/pdf';
 import { calculateSubstringBox } from '../utils/textMetrics';
 
-import { PDFJS_WORKER_URL, PDFJS_CMAP_URL, PDFJS_CMAP_PACKED, PDF_MAX_FILE_SIZE } from '../pdf/pdfConfig';
+import { PDFJS_WORKER_URL, PDFJS_DOCUMENT_OPTIONS, PDF_MAX_FILE_SIZE } from '../pdf/pdfConfig';
 
 // Worker served locally from /public to avoid CDN version mismatch
 pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
@@ -259,8 +259,7 @@ export function usePDFEditor() {
 
       const loadingTask = pdfjsLib.getDocument({
         data: buffer.slice(0),
-        cMapUrl: PDFJS_CMAP_URL,
-        cMapPacked: PDFJS_CMAP_PACKED,
+        ...PDFJS_DOCUMENT_OPTIONS,
       });
 
       const pdfDoc = await loadingTask.promise;
@@ -1597,7 +1596,10 @@ export function usePDFEditor() {
 
     // Parse the newly generated PDF and extract text streams across all pages
     const checks: VerificationCheck[] = [];
-    const testDoc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) }).promise;
+    const testDoc = await pdfjsLib.getDocument({
+      data: new Uint8Array(pdfBytes),
+      ...PDFJS_DOCUMENT_OPTIONS,
+    }).promise;
 
     const pageTexts: Record<number, string> = {};
     for (let p = 1; p <= testDoc.numPages; p++) {

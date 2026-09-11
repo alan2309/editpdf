@@ -3,7 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { QpdfEngine } from './qpdf/qpdfEngine';
 import type { OperationResult, ProgressCallback, CompressOptions } from './types';
 import { getBaseFileName } from './downloadUtils';
-import { PDFJS_CMAP_URL, PDFJS_CMAP_PACKED } from './pdfjsConfig';
+import { PDFJS_DOCUMENT_OPTIONS } from './pdfjsConfig';
 import { verifyPdf } from './verifyPdf';
 
 /**
@@ -84,8 +84,7 @@ export async function compressPdf(
 
     const pdfjsDoc = await pdfjsLib.getDocument({
       data: rawBytes.slice(),
-      cMapUrl: PDFJS_CMAP_URL,
-      cMapPacked: PDFJS_CMAP_PACKED,
+      ...PDFJS_DOCUMENT_OPTIONS,
     }).promise;
 
     const outDoc = await PDFDocument.create();
